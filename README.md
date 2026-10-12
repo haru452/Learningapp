@@ -3,7 +3,10 @@
 スマホに向かって英語で話すと、文字起こしして **Gemini API** または **DeepL Write API** で自然な英語に添削してくれる、Unity 製の英語学習アプリです。
 話した内容を英語日記として残して連続記録（ストリーク）をつけたり、3D キャラクターと英語で会話したりもできます。
 
-📝 **解説記事（Qiita）**：[Unity で「話した英語を AI が添削してくれる」英語日記アプリを作った](https://qiita.com/haru452/items/8656d7d15db5d20c7b41)
+> このリポジトリは、[Learningapp](https://github.com/haru452/Learningapp)（記事「その１」の時点のコード）の続きです。
+> 「その１」からの主な変更：3D キャラクターが感情に合わせて表情を変えるようにした / タッチ反応を削除した
+
+📝 **解説記事（Qiita）**：[その１：Unity で「話した英語を AI が添削してくれる」英語日記アプリを作った](https://qiita.com/haru452/items/8656d7d15db5d20c7b41)
 
 | 添削（Practice） | 3D キャラとの会話（Talk・実験中） |
 |---|---|
@@ -47,7 +50,7 @@
 
 1. このリポジトリをクローンします。
    ```
-   git clone https://github.com/haru452/Learningapp.git
+   git clone https://github.com/haru452/Learningapp2.git
    ```
 2. Unity Hub で **Unity 2022.3.62f3** を使ってフォルダを開きます。
    初回は `Library/` の生成やパッケージのダウンロードに時間がかかります。
