@@ -5958,7 +5958,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &782343060
 Transform:
   m_ObjectHideFlags: 0
@@ -6599,7 +6599,6 @@ GameObject:
   - component: {fileID: 878441159}
   - component: {fileID: 878441158}
   - component: {fileID: 878441160}
-  - component: {fileID: 878441161}
   m_Layer: 0
   m_Name: Lufka-maneger
   m_TagString: Untagged
@@ -6714,26 +6713,6 @@ MonoBehaviour:
   emotionHoldSeconds: 6
   emotionFadeSpeed: 3
   autoBlink: 1
---- !u!114 &878441161
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 878441152}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ce8a553a61a178646ae3fea6c2e082b1, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  character: {fileID: 878441160}
-  conversation: {fileID: 878441159}
-  cam: {fileID: 519420031}
-  speak: 1
-  ignoreBottomFraction: 0.2
-  cooldown: 0.6
-  zoneScale: 1
-  drawZones: 1
 --- !u!1 &907747394
 GameObject:
   m_ObjectHideFlags: 0

@@ -20,6 +20,7 @@ using UnityEngine.Android;
 /// ・LLM が生成している間に、できた文から順に読み上げる(待ち時間の短縮)
 /// ・読み上げ中はマイクを止める(自分の声を拾うループを防ぐ)
 /// ・無音/聞き取り失敗のときは自動で聞き取りをやり直す
+/// ・返事の感情（[happy] などのタグ、無ければ言葉から推測）をキャラクターの表情に反映する
 ///
 /// このコンポーネントを使うときは、SttEchoController と LlmChatTestUI は無効にすること。
 /// (DeviceStats は LlmChatTestUI.cs 内にあるので、ファイル自体は残しておく)
@@ -49,6 +50,12 @@ public class ConversationController : MonoBehaviour
     [Tooltip("空なら端末の既定の声。使える声の名前は、実機の起動時に Console(Logcat)に出る")]
     [SerializeField] string voiceName = "";
 
+    [Header("感情")]
+    [Tooltip("ON: 起動時に、LLM のシステムプロンプトへ「返事の最初に感情タグを付ける」指示を自動で足す")]
+    [SerializeField] bool addEmotionInstruction = true;
+    [Tooltip("ON: ユーザーの発話から感情を読み取り、考えている間の表情にも反映する（悲しい話には悲しい顔など）")]
+    [SerializeField] bool reactToUserEmotion = true;
+
     [Header("発話のつなぎ合わせ")]
     [Tooltip("認識が終わっても、この秒数のあいだ続きを待つ。0 で無効(すぐ送信)")]
     [SerializeField] float mergeWindowSec = 1.5f;
@@ -70,6 +77,9 @@ public class ConversationController : MonoBehaviour
     // LLM
     bool llmReady;
     float llmProgress;
+
+    // 返事の感情（1回の返事の間、同じ表情を保つ）
+    string replyEmotion;
 
     // 返信の文切り出し
     readonly Queue<string> sentenceQueue = new Queue<string>();
@@ -118,6 +128,8 @@ public class ConversationController : MonoBehaviour
         try
         {
             await LLM.WaitUntilModelSetup(p => llmProgress = p);
+
+            if (addEmotionInstruction) AddEmotionInstruction();
 
             status = "ウォームアップ中…";
             var tcs = new TaskCompletionSource<bool>();
@@ -214,52 +226,6 @@ public class ConversationController : MonoBehaviour
 
         if (character != null) character.SetMode(CharacterAnimator.Mode.Idle);
         if (messageWindow != null) messageWindow.Hide();
-    }
-
-    /// <summary>
-    /// タッチ反応など、LLM を通さずに一言しゃべらせる。
-    /// ・会話を止めている間 / 聞き取り中(ユーザーが話していないとき)だけ話す
-    /// ・考え中・返事中は割り込まず、何もしない
-    /// 話し終えたら、元の状態(停止 or 聞き取り)に戻る。
-    /// </summary>
-    public async void SpeakReaction(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line)) return;
-
-        bool wasStopped = state == State.Stopped;
-        bool listeningFree = state == State.Listening
-            && string.IsNullOrEmpty(pendingUserText)
-            && string.IsNullOrEmpty(partialText);
-        if (!wasStopped && !listeningFree) return;
-
-        int id = ++sessionId;
-        state = State.Speaking;
-        status = "リアクション中…";
-        if (stt != null) stt.Cancel();   // 自分の声を拾わない
-
-        if (character != null) character.SetMode(CharacterAnimator.Mode.Speaking);
-
-        try
-        {
-            if (messageWindow != null) messageWindow.ShowCharacterLine(line);
-            await tts.SpeakAsync(line, destroyCancellationToken);
-            await Task.Delay(500, destroyCancellationToken);
-        }
-        catch (OperationCanceledException) { return; }
-        catch (Exception e) { Debug.LogException(e); }
-
-        if (id != sessionId || state != State.Speaking) return;
-
-        if (wasStopped)
-        {
-            state = State.Stopped;
-            status = "停止中";
-            if (character != null) character.SetMode(CharacterAnimator.Mode.Idle);
-        }
-        else
-        {
-            BeginListening();
-        }
     }
 
     void CreateStt()
@@ -360,6 +326,7 @@ public class ConversationController : MonoBehaviour
         consumed = 0;
         generationDone = false;
         sentenceQueue.Clear();
+        replyEmotion = null;
         latencySec = -1f;
         tUser = Time.realtimeSinceStartup;
 
@@ -370,6 +337,14 @@ public class ConversationController : MonoBehaviour
         {
             character.SetMode(CharacterAnimator.Mode.Thinking);
             character.Nod(1, 10f, 0.5f); // 「なるほど」のうなずき
+
+            // ユーザーが悲しい話・うれしい話をしたら、考えている間もそれに合わせた顔をする（共感）
+            if (reactToUserEmotion)
+            {
+                string userEmotion = EmotionDetector.FromWords(userText);
+                if (userEmotion == EmotionDetector.Sad || userEmotion == EmotionDetector.Happy || userEmotion == EmotionDetector.Surprised)
+                    character.SetEmotion(userEmotion);
+            }
         }
 
         if (messageWindow != null) messageWindow.ShowThinking();
@@ -421,6 +396,13 @@ public class ConversationController : MonoBehaviour
 
         replyShown = soFar;
 
+        // 感情タグは、読み上げより先に表情へ反映する（タグが文の後ろに付いても拾えるよう、返事全体から探す）
+        if (replyEmotion == null)
+        {
+            string tag = EmotionDetector.FindTag(soFar);
+            if (tag != null) ApplyReplyEmotion(tag);
+        }
+
         while (SentenceSplitter.TryTake(soFar, consumed, out string sentence, out int end))
         {
             consumed = end;
@@ -440,12 +422,11 @@ public class ConversationController : MonoBehaviour
                 {
                     string raw = sentenceQueue.Dequeue();
 
-                    // [happy] のような感情タグを読み取って、表情に反映する
-                    if (character != null)
-                    {
-                        foreach (Match m in TagRegex.Matches(raw))
-                            character.SetEmotion(m.Groups[1].Value);
-                    }
+                    // 文ごとに感情を確認する。タグがあればそれを、まだ感情が決まっていなければ言葉から推測する
+                    string sentenceTag = EmotionDetector.FindTag(raw);
+                    if (sentenceTag != null) ApplyReplyEmotion(sentenceTag);
+                    else if (replyEmotion == null) ApplyReplyEmotion(EmotionDetector.FromWords(EmotionDetector.StripTags(raw)));   // 見つからなければ今の表情のまま
+                    else if (character != null) character.SetEmotion(replyEmotion);   // 話している間は表情を保つ
 
                     string s = Sanitize(raw);   // タグを除いた、読み上げる文
                     if (!SentenceSplitter.HasLetterOrDigit(s)) continue;
@@ -482,12 +463,28 @@ public class ConversationController : MonoBehaviour
     }
 
     /// <summary>読み上げに不要な記号を除く</summary>
-    static readonly Regex TagRegex = new Regex(@"\[([A-Za-z]+)\]");
-
     static string Sanitize(string s)
     {
-        s = TagRegex.Replace(s, "");   // 感情タグは読み上げない
+        s = EmotionDetector.StripTags(s);   // 感情タグは読み上げない
         return s.Replace("*", "").Replace("#", "").Trim();
+    }
+
+    // ------------------------------------------------------------------ 感情
+
+    /// <summary>LLM のシステムプロンプトに、感情タグを付ける指示を足す（すでにあれば何もしない）</summary>
+    void AddEmotionInstruction()
+    {
+        string prompt = llmAgent.systemPrompt ?? "";
+        if (prompt.Contains("emotion tag")) return;
+        llmAgent.systemPrompt = prompt.TrimEnd() + " " + EmotionDetector.PromptInstruction;
+    }
+
+    /// <summary>この返事の感情を決めて、表情に反映する</summary>
+    void ApplyReplyEmotion(string emotion)
+    {
+        if (string.IsNullOrEmpty(emotion)) return;
+        replyEmotion = emotion;
+        if (character != null) character.SetEmotion(emotion);
     }
 
     // ------------------------------------------------------------------ 認識エラー
@@ -588,7 +585,7 @@ public class ConversationController : MonoBehaviour
 
             if (!string.IsNullOrEmpty(userShown)) GUILayout.Label("あなた: " + userShown, label);
             if (!string.IsNullOrEmpty(replyShown))
-                GUILayout.Label("返事: " + TagRegex.Replace(replyShown, "").Trim(), label);
+                GUILayout.Label("返事: " + EmotionDetector.StripTags(replyShown) + (replyEmotion != null ? "  (感情: " + replyEmotion + ")" : ""), label);
 
             if (latencySec >= 0f)
                 GUILayout.Label($"話し終えてから声が出るまで: {latencySec:F2} 秒", label);

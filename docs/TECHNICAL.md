@@ -137,7 +137,7 @@ Assets/
 | `SentenceSplitter.cs` | LLM の出力から1文ずつ切り出す |
 | `CharacterAnimator.cs` | VRM の姿勢・まばたき・うなずき・表情をコードで動かす |
 | `PseudoLipSync.cs` / `MouthTargetBase.cs` / `Vrm10MouthTarget.cs` | 疑似口パク |
-| `TouchReaction.cs` | キャラクターをタッチしたときの反応 |
+| `EmotionDetector.cs` | 返事やユーザーの発話から感情を読み取る（感情タグ、または言葉から推測） |
 | `MessageWindow.cs` | ノベルゲーム風のメッセージウィンドウ |
 | `DiscordClient.cs` | Discord への送信（日記モードで使用） |
 | `*TestUI.cs` / `SttEchoController.cs` | 開発段階ごとの動作確認用画面 |
@@ -374,9 +374,14 @@ flowchart LR
 - 聞いている・考えている・話している状態に応じて首をかしげたり、相づちでうなずいたりします。
 - 表情は `SetEmotion("happy")` などで変えられます（happy / sad / angry / surprised / relaxed / neutral）。
 
-**タッチ反応（TouchReaction）**
-- VRM にはコライダーがないため、起動時に頭・体・腕・手の骨へ見えない球の当たり判定を自動で付けます。
-- 触った場所に応じて、うなずく・のけぞる・笑顔になるなどの反応と一言を返します。短時間に何度も触ると少し怒ります。
+**感情と表情（EmotionDetector）**
+- 起動時に、LLM のシステムプロンプトへ「返事の最初に感情タグ（`[happy]` など）を1つ付ける」指示を自動で追加します（`addEmotionInstruction`）。
+- タグは `[happy]` `(smiles)` `*giggles*` `<surprised>` のような書き方を読み取り、読み上げと表示からは取り除きます。
+- 返事の生成中にタグが見つかった時点で表情を変えるので、話し始める前に顔が変わります。
+- タグが無いときは、`sorry`→悲しい、`wow`→驚き、`great`→うれしい のように、文中の言葉から推測します。
+- 1回の返事の間は同じ表情を保ち、話し終えてしばらくすると自然な顔に戻ります。
+- ユーザーの発話が悲しい・うれしい・驚きの内容なら、考えている間もそれに合わせた顔をします（`reactToUserEmotion`）。
+- 笑顔・おだやかな顔のときは目が細くなっているので、まばたきを重ねません。
 
 **開発用の画面**：`TtsTestUI`（読み上げ）、`SttEchoController`（オウム返し）、`LlmChatTestUI`（LLM の速度・メモリ計測）、`LipSyncTestUI`、`CharacterTestUI`。
 `ConversationController` を使うときは、`SttEchoController` と `LlmChatTestUI` を無効にしてください。

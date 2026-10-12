@@ -159,6 +159,7 @@ public class CharacterAnimator : MonoBehaviour
 
         emotionIndex = idx;
         emotionTimer = emotionHoldSeconds;
+        if (idx >= 0 && emotionStrength <= 0f) LogOnce("Emotion Strength が 0 なので、表情が変わりません。");
         return true;
     }
 
@@ -424,7 +425,9 @@ public class CharacterAnimator : MonoBehaviour
         if (autoBlink)
         {
             blinkTimer -= dt;
-            if (blinkTimer <= 0f && blinkT < 0f)
+            // 笑顔・おだやかな顔のときは目が細くなっているので、まばたきを重ねない（目がつぶれて見えるのを防ぐ）
+            bool eyesNarrowed = emotionWeights[0] > 0.3f || emotionWeights[3] > 0.3f;
+            if (blinkTimer <= 0f && blinkT < 0f && !eyesNarrowed)
             {
                 blinkT = 0f;
                 blinkTimer = Random.Range(2.5f, 5.5f);
