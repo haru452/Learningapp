@@ -22,6 +22,8 @@ public class ApiSecrets
     public string supabaseUrl;
     public string supabaseAnonKey;
     public string youtubeApiKey;
+    public string summaryDiscordWebhookUrl;   // 要約練習の結果を送る Webhook (日記とは別のチャンネル)
+    public string summaryDiscordChannelId;    // Webhook の代わりに Bot で送る場合のチャンネルID
 
     private const string ResourceName = "ApiSecrets";
     private static ApiSecrets _data;

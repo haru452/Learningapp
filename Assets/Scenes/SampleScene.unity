@@ -1082,7 +1082,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &109387048
 Transform:
   m_ObjectHideFlags: 0
@@ -4231,10 +4231,10 @@ RectTransform:
   - {fileID: 1756173182}
   m_Father: {fileID: 1418159382}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -1343.2}
+  m_SizeDelta: {x: 1032, y: 564.8}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &557252607
 MonoBehaviour:
@@ -5349,10 +5349,10 @@ RectTransform:
   - {fileID: 644085994}
   m_Father: {fileID: 1827473035}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 516, y: -81.479996}
+  m_SizeDelta: {x: 1032, y: 162.95999}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &651493783
 MonoBehaviour:
@@ -6795,10 +6795,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 955036284}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 516, y: -92}
+  m_SizeDelta: {x: 992, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &812118453
 CanvasRenderer:
@@ -7676,10 +7676,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 955036284}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 516, y: -20}
+  m_SizeDelta: {x: 992, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &931739474
 CanvasRenderer:
@@ -8165,7 +8165,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 112}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!114 &955036285
 MonoBehaviour:
@@ -8887,7 +8887,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: version 2.0.0
+  m_text: version 3.0.0
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -10954,10 +10954,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1418159382}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -820.83997}
+  m_SizeDelta: {x: 1032, y: 90}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1380771006
 MonoBehaviour:
@@ -11590,10 +11590,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 955036284}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 516, y: -44}
+  m_SizeDelta: {x: 992, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &1481203331
 CanvasRenderer:
@@ -12614,10 +12614,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 955036284}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 516, y: -68}
+  m_SizeDelta: {x: 992, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &1628375428
 CanvasRenderer:
@@ -12824,10 +12824,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1418159382}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -66}
+  m_SizeDelta: {x: 1032, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1641743512
 MonoBehaviour:
@@ -13286,10 +13286,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1418159382}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -387.91998}
+  m_SizeDelta: {x: 1032, y: 511.84}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1694926828
 MonoBehaviour:
@@ -14417,10 +14417,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1418159382}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -709.83997}
+  m_SizeDelta: {x: 1032, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1808923310
 MonoBehaviour:
@@ -14573,10 +14573,10 @@ RectTransform:
   - {fileID: 1943644380}
   m_Father: {fileID: 1418159382}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -963.31995}
+  m_SizeDelta: {x: 1032, y: 162.95999}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1827473036
 MonoBehaviour:
@@ -15559,8 +15559,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   geminiApiKey: 
-  geminiModel: gemini-3.8-flash
-  geminiFallbackModel: gemini-3.7-flash
+  geminiModel: gemini-3.5-flash-lite
+  geminiFallbackModel: gemini-3.8-flash
   youtubeApiKey: 
   timeLimitSeconds: 60
   minVideoSeconds: 40
@@ -15580,6 +15580,11 @@ MonoBehaviour:
   - space news
   - economics explained simply
   speechLanguage: en-US
+  sendToDiscord: 1
+  discordWebhookUrl: 
+  discordBotToken: 
+  discordChannelId: 
+  supabase: {fileID: 0}
   mainButton: {fileID: 651493786}
   mainButtonLabel: {fileID: 644085996}
   skipButton: {fileID: 1943644384}
@@ -16457,7 +16462,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &2047646565
 Transform:
   m_ObjectHideFlags: 0
@@ -16702,7 +16707,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &2139602682
 RectTransform:
   m_ObjectHideFlags: 0

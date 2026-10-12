@@ -75,33 +75,33 @@ public class DiscordClient
         }
     }
 
-    /// <summary>要約練習 (Versant 対策) の採点結果を送信する。</summary>
+    /// <summary>要約練習 (Versant 対策) の採点結果を送信する。項目ごとの点数は棒グラフ風に並べる。</summary>
     public async Task SendSummaryResultAsync(
-        DateTime date,
-        string videoTitle,
-        string videoUrl,
-        int score,
-        string summary,
-        string goodPoints,
-        string missedPoints,
-        string languageFeedback,
-        string referenceSummary,
-        string improvedSummary)
+        DateTime date, string videoTitle, string videoUrl, GeminiApiClient.SummaryGrade g)
     {
         if (!IsConfigured)
             throw new InvalidOperationException("Discord is not configured.");
 
+        // 等幅で揃えるため、コードブロックにする
+        string breakdown =
+            "```\n" +
+            ScoreBar("Content", g.contentScore, GeminiApiClient.ContentMax) +
+            ScoreBar("Organization", g.organizationScore, GeminiApiClient.OrganizationMax) +
+            ScoreBar("Grammar/Vocab", g.languageScore, GeminiApiClient.LanguageMax) +
+            "```\n";
+
         // URL を <> で囲んで、動画のプレビュー(埋め込み)を出さない
         string full =
             "\U0001F3AC **Summary Practice - " + date.ToString("yyyy-MM-dd HH:mm") + "**\n" +
-            "Score: **" + score + " / 100**\n" +
+            "Score: **" + g.score + " / 100**\n" +
+            breakdown +
             "Video: " + videoTitle + " <" + videoUrl + ">\n\n" +
-            Section("Your summary", summary) +
-            Section("Good points", goodPoints) +
-            Section("Missed points", missedPoints) +
-            Section("Language", languageFeedback) +
-            Section("Model summary", referenceSummary) +
-            Section("Your summary, improved", improvedSummary);
+            Section("Your summary", g.transcript) +
+            Section("Good points", g.goodPoints) +
+            Section("Missed points", g.missedPoints) +
+            Section("Language", g.languageFeedback) +
+            Section("Model summary", g.referenceSummary) +
+            Section("Your summary, improved", g.improvedSummary);
 
         List<string> chunks = Split(full, MaxMessageLength);
         for (int i = 0; i < chunks.Count; i++)
@@ -115,6 +115,16 @@ public class DiscordClient
     // ------------------------------------------------------------
     // Internal
     // ------------------------------------------------------------
+    // "Content        ████████░░  38/50"
+    private static string ScoreBar(string label, int score, int max)
+    {
+        const int width = 10;
+        int filled = max > 0 ? (int)Math.Round((double)score / max * width) : 0;
+        filled = Math.Max(0, Math.Min(width, filled));
+        return label.PadRight(14) + new string('█', filled) + new string('░', width - filled) +
+               "  " + (score + "/" + max).PadLeft(5) + "\n";
+    }
+
     private static string Section(string title, string body, string note = null)
     {
         if (string.IsNullOrWhiteSpace(body)) return "";

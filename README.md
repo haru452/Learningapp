@@ -38,8 +38,9 @@
 - YouTube Data API で、字幕付きの短い英語動画（40秒〜2分半）を毎回ランダムに出題
 - 動画はアプリ内の埋め込みプレーヤーで再生（Editor ではブラウザで開く）
 - 動画が終わると制限時間（標準60秒）のカウントダウンが始まり、話して要約する
-- Gemini が動画そのものを見て採点：スコア・押さえた点・抜けた点・文法の指摘・お手本の要約・改善例
-- 採点結果は Discord に送信（任意）。ログイン中はクラウドに保存され、Web 版で点数の推移をグラフで見られる
+- Gemini が動画そのものを見て、項目ごとに採点：内容（50点）・構成（25点）・文法・語彙（25点）。合計はアプリで計算
+- あわせて、押さえた点・抜けた点・文法の指摘・お手本の要約・改善例も表示
+- 採点結果は Discord に送信（任意。項目ごとの点数を棒グラフ風に表示）。ログイン中はクラウドに保存され、Web 版で点数の推移と項目ごとの内訳をグラフで見られる
 - 音声認識が途中で切れても、日記モードと同じく自動で再開する
 - YouTube Data API の無料枠は 1 日 10,000 ユニットで、動画の検索 1 回に 100 ユニット使う（1 日に約 100 回まで出題できる）
 - Summary 画面は、Unity のメニュー **Tools → Summary Practice → Create Summary Screen** で、今のシーンに自動で組み立てられる（`Assets/Editor/SummaryScreenBuilder.cs`）
@@ -90,7 +91,9 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "reminderSecret": "",
   "supabaseUrl": "",
   "supabaseAnonKey": "",
-  "youtubeApiKey": ""
+  "youtubeApiKey": "",
+  "summaryDiscordWebhookUrl": "",
+  "summaryDiscordChannelId": ""
 }
 ```
 
@@ -101,6 +104,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 | youtubeApiKey | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)（YouTube Data API v3 を有効化） | 要約練習を使う場合 |
 | supabaseUrl / supabaseAnonKey | [Supabase](https://supabase.com/) | ログイン・日記保存を使う場合 |
 | discordWebhookUrl | Discord のサーバー設定 | 任意 |
+| summaryDiscordWebhookUrl | Discord のサーバー設定（要約練習の結果を送るチャンネルの Webhook。日記とは別） | 任意。空なら要約の結果は送らない |
 | reminderWorkerUrl / reminderSecret | 自前のリマインダー用 Worker | 任意 |
 
 > ⚠️ **注意**
@@ -161,3 +165,7 @@ Assets/Script/
 
 - `Assets/My assets/amanogawa.vrm`：VRM モデルの中に書き込まれた利用条件（再配布・改変は不可）
 - `Packages/` 内のパッケージ（UniVRM など）、TextMesh Pro、LLMUnity：各パッケージのライセンス
+
+
+メモ
+i use　claude opus and it can create ui for me, so i dont have to aligne it...

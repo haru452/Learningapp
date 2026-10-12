@@ -33,8 +33,10 @@ public class SummaryPracticeManager : MonoBehaviour
 
     [Header("API Keys (※ 本番ではアプリに埋め込まず、バックエンド経由にすること)")]
     [SerializeField] private string geminiApiKey;
-    [SerializeField] private string geminiModel = "gemini-3.8-flash";
-    [SerializeField] private string geminiFallbackModel = "gemini-3.7-flash";
+    [Tooltip("採点に使うモデル。動画を送るのでトークンを多く使う → 1日の回数に余裕がある Flash Lite を先に使う")]
+    [SerializeField] private string geminiModel = "gemini-3.5-flash-lite";
+    [Tooltip("上のモデルが上限 (429) や名前違い (404) のときに使う予備モデル")]
+    [SerializeField] private string geminiFallbackModel = "gemini-3.8-flash";
     [Tooltip("YouTube Data API v3 のキー")]
     [SerializeField] private string youtubeApiKey;
 
@@ -61,8 +63,10 @@ public class SummaryPracticeManager : MonoBehaviour
     [Header("Discord (※ Webhook URL / Botトークンは第三者に見せないこと。空なら ApiSecrets.json の値)")]
     [Tooltip("ON: 採点が終わったら Discord に送信する")]
     [SerializeField] private bool sendToDiscord = true;
+    [Tooltip("要約練習用の Webhook URL (日記とは別のチャンネル)。ApiSecrets.json の summaryDiscordWebhookUrl")]
     [SerializeField] private string discordWebhookUrl;
-    [SerializeField] private string discordBotToken;
+    [Tooltip("Webhook URL が空のときだけ使う: 送信先チャンネルID (ApiSecrets.json の summaryDiscordChannelId)。" +
+             "Bot トークンは日記と同じもの (discordBotToken) を使う")]
     [SerializeField] private string discordChannelId;
 
     [Header("Cloud (任意。ログイン中だけ、採点結果をクラウドに保存する。空欄ならシーンから探す)")]
@@ -127,20 +131,23 @@ public class SummaryPracticeManager : MonoBehaviour
         if (player == null) player = GetComponentInChildren<YouTubePlayerView>(true);
         if (player == null) player = gameObject.AddComponent<YouTubePlayerView>();
 
-        // 複数のパネルで同じ AudioRecorder / NativeSpeechRecognizer を共有する
-        if (recorder == null) recorder = FindObjectOfType<AudioRecorder>();
+        // ほかの画面のものは共有しない: NativeSpeechRecognizer は自分の Update() で認識結果を処理するので、
+        // 置かれている画面が非表示になると結果が届かなくなる (AudioRecorder の録音上限の検知も同じ)。
+        // Summary タブは「この画面を表示 → ほかの画面を非表示」の順に動くため、探すと非表示になる画面のものを拾ってしまう。
+        if (recorder == null) recorder = GetComponent<AudioRecorder>();
         if (recorder == null) recorder = gameObject.AddComponent<AudioRecorder>();
 
-        if (nativeStt == null) nativeStt = FindObjectOfType<NativeSpeechRecognizer>();
+        if (nativeStt == null) nativeStt = GetComponent<NativeSpeechRecognizer>();
         if (nativeStt == null) nativeStt = gameObject.AddComponent<NativeSpeechRecognizer>();
 
         // API キーは Assets/Resources/ApiSecrets.json から読み込む (GitHub には上げない)
         var secrets = ApiSecrets.Data;
         geminiApiKey = ApiSecrets.Pick(secrets.geminiApiKey, geminiApiKey);
         youtubeApiKey = ApiSecrets.Pick(secrets.youtubeApiKey, youtubeApiKey);
-        discordWebhookUrl = ApiSecrets.Pick(secrets.discordWebhookUrl, discordWebhookUrl);
-        discordBotToken = ApiSecrets.Pick(secrets.discordBotToken, discordBotToken);
-        discordChannelId = ApiSecrets.Pick(secrets.discordChannelId, discordChannelId);
+        // 日記とは別のチャンネルに送る。要約用の送り先が無ければ送らない (日記のチャンネルには流さない)
+        discordWebhookUrl = ApiSecrets.Pick(secrets.summaryDiscordWebhookUrl, discordWebhookUrl);
+        discordChannelId = ApiSecrets.Pick(secrets.summaryDiscordChannelId, discordChannelId);
+        string discordBotToken = string.IsNullOrWhiteSpace(discordChannelId) ? "" : secrets.discordBotToken;
 
         if (supabase == null) supabase = FindObjectOfType<SupabaseService>(true);
 
@@ -523,7 +530,14 @@ public class SummaryPracticeManager : MonoBehaviour
     private void ShowGrade(GeminiApiClient.SummaryGrade g)
     {
         if (transcriptText != null) transcriptText.text = g.transcript;
-        if (scoreText != null) scoreText.text = $"Score: {Mathf.Clamp(g.score, 0, 100)} / 100";
+        if (scoreText != null)
+        {
+            scoreText.text =
+                $"Score: {g.score} / 100\n" +
+                $"<size=60%>Content {g.contentScore}/{GeminiApiClient.ContentMax}  ·  " +
+                $"Organization {g.organizationScore}/{GeminiApiClient.OrganizationMax}  ·  " +
+                $"Grammar & vocabulary {g.languageScore}/{GeminiApiClient.LanguageMax}</size>";
+        }
 
         if (feedbackText != null)
         {
@@ -554,10 +568,7 @@ public class SummaryPracticeManager : MonoBehaviour
         SetStatus("Sending to Discord...");
         try
         {
-            await _discord.SendSummaryResultAsync(
-                DateTime.Now, video.title, video.WatchUrl, Mathf.Clamp(g.score, 0, 100),
-                g.transcript, g.goodPoints, g.missedPoints, g.languageFeedback,
-                g.referenceSummary, g.improvedSummary);
+            await _discord.SendSummaryResultAsync(DateTime.Now, video.title, video.WatchUrl, g);
             return null;
         }
         catch (Exception e)

@@ -148,11 +148,19 @@ public class GeminiApiClient
     // ------------------------------------------------------------
     // Versant 対策: 動画の要約を採点する
     // ------------------------------------------------------------
+    // 項目ごとの満点 (合計 100)
+    public const int ContentMax = 50;        // 内容: 要点を押さえているか・間違いが無いか
+    public const int OrganizationMax = 25;   // 構成: 話の順序・つながり
+    public const int LanguageMax = 25;       // 文法・語彙
+
     [Serializable]
     public class SummaryGrade
     {
         public string transcript;        // 音声を送った場合の文字起こし (テキストを送った場合は空)
-        public int score;                // 0〜100
+        public int contentScore;         // 0〜ContentMax
+        public int organizationScore;    // 0〜OrganizationMax
+        public int languageScore;        // 0〜LanguageMax
+        public int score;                // 合計 (0〜100)。Gemini には出させず、アプリで計算する
         public string referenceSummary;  // お手本の要約
         public string goodPoints;        // 押さえられていたポイント
         public string missedPoints;      // 抜けていたポイント・誤解
@@ -165,9 +173,12 @@ public class GeminiApiClient
         "(similar to the \"Story Retelling\" / \"Summary\" tasks).\n" +
         "The learner watched the attached video once, then had {0} seconds to summarize it out loud in English.\n" +
         "{1}\n" +
-        "Evaluate the summary against the video:\n" +
-        "- \"score\": an integer from 0 to 100. Weigh content most (were the main idea and key points captured, " +
-        "and is anything wrong?), then clarity and organization, then grammar and vocabulary. " +
+        "Evaluate the summary against the video. Score each part separately with an integer:\n" +
+        "- \"contentScore\" (0-{2}): are the main idea and the key points of the video captured, " +
+        "and is anything stated wrongly? Missing the main idea or saying something false costs the most.\n" +
+        "- \"organizationScore\" (0-{3}): is it easy to follow? E.g. the main idea first, then supporting points " +
+        "in a logical order, with linking words (first, then, because, so...). Ignore hesitations like \"um\".\n" +
+        "- \"languageScore\" (0-{4}): grammar accuracy and the range and correctness of vocabulary.\n" +
         "Remember it was spoken under time pressure, so do not expect a complete summary for a high score.\n" +
         "- \"referenceSummary\": a model summary of the video in 3-4 simple sentences that could be said in {0} seconds.\n" +
         "- \"goodPoints\": the key points the learner covered, as short bullet lines starting with \"- \".\n" +
@@ -176,7 +187,7 @@ public class GeminiApiClient
         "Ignore punctuation and capitalization.\n" +
         "- \"improvedSummary\": rewrite the learner's own summary as natural, correct English, " +
         "keeping their structure but fixing errors and adding the most important missing point.\n" +
-        "Write all feedback in simple English. If the learner said nothing meaningful, give score 0 " +
+        "Write all feedback in simple English. If the learner said nothing meaningful, give 0 for every score " +
         "and still fill referenceSummary.";
 
     private const string SpokenSummaryNote =
@@ -190,14 +201,16 @@ public class GeminiApiClient
     private const string SummaryGradeSchema =
         "{\"type\":\"OBJECT\",\"properties\":{" +
         "\"transcript\":{\"type\":\"STRING\"}," +
-        "\"score\":{\"type\":\"INTEGER\"}," +
+        "\"contentScore\":{\"type\":\"INTEGER\"}," +
+        "\"organizationScore\":{\"type\":\"INTEGER\"}," +
+        "\"languageScore\":{\"type\":\"INTEGER\"}," +
         "\"referenceSummary\":{\"type\":\"STRING\"}," +
         "\"goodPoints\":{\"type\":\"STRING\"}," +
         "\"missedPoints\":{\"type\":\"STRING\"}," +
         "\"languageFeedback\":{\"type\":\"STRING\"}," +
         "\"improvedSummary\":{\"type\":\"STRING\"}}," +
-        "\"required\":[\"transcript\",\"score\",\"referenceSummary\",\"goodPoints\"," +
-        "\"missedPoints\",\"languageFeedback\",\"improvedSummary\"]}";
+        "\"required\":[\"transcript\",\"contentScore\",\"organizationScore\",\"languageScore\"," +
+        "\"referenceSummary\",\"goodPoints\",\"missedPoints\",\"languageFeedback\",\"improvedSummary\"]}";
 
     /// <summary>
     /// YouTube 動画をお手本に、ユーザーが話した要約を採点する。
@@ -209,15 +222,38 @@ public class GeminiApiClient
         string note = wav != null ? AudioSummaryNote : SpokenSummaryNote + spokenSummary;
         string prompt = SummaryGradePrompt
             .Replace("{0}", timeLimitSeconds.ToString())
-            .Replace("{1}", note);
+            .Replace("{1}", note)
+            .Replace("{2}", ContentMax.ToString())
+            .Replace("{3}", OrganizationMax.ToString())
+            .Replace("{4}", LanguageMax.ToString());
 
         // 動画はプロンプトより前に置くのが推奨されている
-        string parts = YouTubePart(youtubeUrl) + "," + TextPart(prompt) + (wav != null ? "," + AudioPart(wav) : "");
+        string tail = "," + TextPart(prompt) + (wav != null ? "," + AudioPart(wav) : "");
 
-        string innerJson = await GeneratePartsAsync(parts, SummaryGradeSchema);
+        // 要約の採点に必要なのは主に音声なので、映像は低画質・少ないコマ数で読ませてトークンを節約する
+        // (1分あたりのトークン上限 TPM に引っかかりにくくする)。
+        // もしこの設定が受け付けられなかった (400) ときは、今までどおりの送り方でやり直す。
+        string innerJson;
+        try
+        {
+            innerJson = await GeneratePartsAsync(
+                YouTubePart(youtubeUrl, VideoFps) + tail, SummaryGradeSchema,
+                extraConfig: "\"mediaResolution\":\"MEDIA_RESOLUTION_LOW\",\"temperature\":0.2");
+        }
+        catch (HttpException e) when (e.StatusCode == 400)
+        {
+            Debug.LogWarning("[Gemini] Light video options were rejected. Retrying without them: " + e.Message);
+            innerJson = await GeneratePartsAsync(YouTubePart(youtubeUrl) + tail, SummaryGradeSchema);
+        }
         var result = JsonUtility.FromJson<SummaryGrade>(innerJson);
         if (result == null) throw new Exception("Could not parse Gemini response: " + innerJson);
         if (wav == null) result.transcript = spokenSummary;
+
+        // 満点を超える値が返ってきても、範囲に収めてから合計する
+        result.contentScore = Mathf.Clamp(result.contentScore, 0, ContentMax);
+        result.organizationScore = Mathf.Clamp(result.organizationScore, 0, OrganizationMax);
+        result.languageScore = Mathf.Clamp(result.languageScore, 0, LanguageMax);
+        result.score = result.contentScore + result.organizationScore + result.languageScore;
         return result;
     }
 
@@ -226,14 +262,20 @@ public class GeminiApiClient
     // ------------------------------------------------------------
     private const int MaxAttemptsPerModel = 3;
 
-    private static bool IsRetryable(HttpException e)
-    {
-        // 429: レート制限 / 500,503: サーバー側の一時的な障害・混雑
-        return e.StatusCode == 429 || e.StatusCode == 500 || e.StatusCode == 503;
-    }
+    /// <summary>要約の採点で、動画を何秒に1コマ読むか (0.5 = 2秒に1コマ)</summary>
+    private const float VideoFps = 0.5f;
+
+    // 500 / 503: サーバー側の一時的な障害・混雑 → 少し待てば通ることが多いので、同じモデルでやり直す
+    private static bool IsTemporary(HttpException e) => e.StatusCode == 500 || e.StatusCode == 503;
+
+    // 429: 利用上限 (1分あたり / 1日あたり) → 同じモデルで送り直すと、さらに枠を使ってしまう
+    // 404: モデル名が見つからない
+    // → どちらも同じモデルではやり直さず、すぐ予備モデルに切り替える (上限はモデルごとに別)
+    private static bool ShouldSwitchModel(HttpException e) => e.StatusCode == 429 || e.StatusCode == 404;
 
     /// <summary>
-    /// 一時的なエラー時は待ってリトライ(1秒→2秒)し、それでも失敗したら予備モデルに切り替える。
+    /// 一時的なエラー (500/503) は待ってリトライ (1秒→2秒) し、それでも失敗したら予備モデルに切り替える。
+    /// 利用上限 (429) やモデル名の間違い (404) のときは、リトライせずにすぐ予備モデルに切り替える。
     /// </summary>
     private async Task<string> PostWithRetryAsync(string body)
     {
@@ -254,7 +296,13 @@ public class GeminiApiClient
                     return await HttpUtil.PostJsonAsync(
                         url, body, new[] { ("x-goog-api-key", _apiKey) }, timeoutSeconds: 90);
                 }
-                catch (HttpException e) when (IsRetryable(e))
+                catch (HttpException e) when (ShouldSwitchModel(e))
+                {
+                    lastError = e;
+                    Debug.LogWarning($"[Gemini] {model} failed ({e.StatusCode}). Switching to the fallback model without retrying.");
+                    break;
+                }
+                catch (HttpException e) when (IsTemporary(e))
                 {
                     lastError = e;
                     Debug.LogWarning($"[Gemini] {model} attempt {attempt + 1} failed ({e.StatusCode}). Retrying...");
@@ -281,11 +329,17 @@ public class GeminiApiClient
         "{\"inline_data\":{\"mime_type\":\"audio/wav\",\"data\":\"" + Convert.ToBase64String(wav) + "\"}}";
 
     // 公開されている YouTube 動画は URL をそのまま渡せる
-    private static string YouTubePart(string videoUrl) =>
-        "{\"file_data\":{\"file_uri\":\"" + HttpUtil.JsonEscape(videoUrl) + "\"}}";
+    // fps を指定すると、動画を読むコマ数を減らせる (指定しなければ Gemini の初期値)
+    private static string YouTubePart(string videoUrl, float fps = 0f) =>
+        "{\"file_data\":{\"file_uri\":\"" + HttpUtil.JsonEscape(videoUrl) + "\"}" +
+        (fps > 0f
+            ? ",\"video_metadata\":{\"fps\":" + fps.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}"
+            : "") +
+        "}";
 
     /// <param name="partsJson">parts 配列の中身 (カンマ区切りの JSON オブジェクト)</param>
-    private async Task<string> GeneratePartsAsync(string partsJson, string schemaJson)
+    /// <param name="extraConfig">generationConfig に足す設定 (例: "\"temperature\":0.2")。無ければ null</param>
+    private async Task<string> GeneratePartsAsync(string partsJson, string schemaJson, string extraConfig = null)
     {
         if (string.IsNullOrEmpty(_apiKey))
             throw new InvalidOperationException("Gemini API key is not set.");
@@ -298,6 +352,7 @@ public class GeminiApiClient
             "\"generationConfig\":{" +
                 "\"responseMimeType\":\"application/json\"," +
                 "\"responseSchema\":" + schemaJson +
+                (string.IsNullOrEmpty(extraConfig) ? "" : "," + extraConfig) +
             "}}";
 
         string response = await PostWithRetryAsync(body);

@@ -252,7 +252,10 @@ public class SupabaseService : MonoBehaviour
             Field("p_video_id", videoId) +
             Field("p_video_title", videoTitle) +
             ",\"p_time_limit\":" + timeLimitSeconds +
-            ",\"p_score\":" + Mathf.Clamp(grade.score, 0, 100) +
+            ",\"p_score\":" + grade.score +
+            ",\"p_content_score\":" + grade.contentScore +
+            ",\"p_organization_score\":" + grade.organizationScore +
+            ",\"p_language_score\":" + grade.languageScore +
             Field("p_transcript", grade.transcript) +
             Field("p_reference", grade.referenceSummary) +
             Field("p_good_points", grade.goodPoints) +
