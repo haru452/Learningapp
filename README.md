@@ -74,7 +74,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 
 | リポジトリ | 内容 |
 |---|---|
-| [my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord) | Cloudflare Workers のコード（日記のリマインダー・Discord 通知） |
+| [my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord) | Cloudflare Workers のコード（日記のリマインダー・Discord 通知）。毎日の実行は [cron-job.org](https://cron-job.org/en/) から呼び出し |
 | [database_learnApp](https://github.com/haru452/database_learnApp) | データベース（Supabase）のコードと Web 版 |
 
 ## スクリプト構成

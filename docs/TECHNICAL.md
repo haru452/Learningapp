@@ -78,7 +78,7 @@ flowchart LR
 | DeepL Write API | 自然な言い回しへの言い換え | DeepL を使う場合 |
 | Supabase | ログイン、ストリークと日記のクラウド保存 | 任意 |
 | Discord（Webhook / Bot） | 添削した日記の送信 | 任意 |
-| リマインダー Worker | 日記を書いていない日に通知 | 任意 |
+| リマインダー Worker（Cloudflare Workers + cron-job.org） | 日記を書いていない日に通知 | 任意 |
 
 > サーバー側のコードは、次のリポジトリで管理しています。
 > - Cloudflare Workers（リマインダー・Discord 通知）：[my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord)
@@ -316,6 +316,7 @@ flowchart TD
 ### リマインダー Worker（ReminderClient）
 
 - Worker のコードは [my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord) にあります。
+- 毎日の「書いたか」の判定は、外部サービスの [cron-job.org](https://cron-job.org/en/) が毎日決まった時刻に Worker の `POST /check` を呼んで行います（Cloudflare の Cron Trigger だけでは安定して動かなかったため）。`/check` にも `Authorization: Bearer {reminderSecret}` が必要です。
 - `POST {workerUrl}/ping` に `{"date":"yyyy-MM-dd","streak":N}` を送ります。
 - 認証：`Authorization: Bearer {reminderSecret}`
 - 失敗したら最大3回まで再試行します（2秒・4秒待つ）。400・401 は再試行しても直らないので、すぐに諦めます。
