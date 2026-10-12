@@ -46,7 +46,7 @@ public class AuthPanel : MonoBehaviour
         // Enter キー (スマホでは、キーボードの「完了/改行」) で、次へ進む / ログインする
         if (emailInput != null) emailInput.onSubmit.AddListener(OnEmailSubmit);
         if (passwordInput != null) passwordInput.onSubmit.AddListener(OnPasswordSubmit);
-        if (supabase != null) { supabase.AuthChanged += UpdateView; supabase.ProfileChanged += UpdateView; }
+        if (supabase != null) supabase.AuthChanged += UpdateView;
         UpdateView();
     }
 
@@ -57,7 +57,7 @@ public class AuthPanel : MonoBehaviour
         if (signOutButton != null) signOutButton.onClick.RemoveListener(OnSignOut);
         if (emailInput != null) emailInput.onSubmit.RemoveListener(OnEmailSubmit);
         if (passwordInput != null) passwordInput.onSubmit.RemoveListener(OnPasswordSubmit);
-        if (supabase != null) { supabase.AuthChanged -= UpdateView; supabase.ProfileChanged -= UpdateView; }
+        if (supabase != null) supabase.AuthChanged -= UpdateView;
     }
 
     private async void Start()
@@ -77,10 +77,7 @@ public class AuthPanel : MonoBehaviour
         if (signedOutGroup != null) signedOutGroup.SetActive(!signedIn);
         if (signedInGroup != null) signedInGroup.SetActive(signedIn);
         if (accountText != null)
-            accountText.text = !signedIn ? ""
-                : string.IsNullOrEmpty(supabase.Profile.DisplayName)
-                    ? "Signed in as " + supabase.Email
-                    : supabase.Profile.DisplayName + "\n" + supabase.Email;
+            accountText.text = signedIn ? "Signed in as " + supabase.Email : "";
 
         if (signedIn && passwordInput != null) passwordInput.text = "";
 
@@ -166,7 +163,7 @@ public class AuthPanel : MonoBehaviour
     {
         if (_busy) return;
         _busy = true; SetButtons(false);
-        try { await supabase.SignOutAsync(); SetStatus(""); }
+        try { await supabase.SignOutAsync(); SetStatus("Signed out."); }
         catch (Exception e) { SetStatus(e.Message); }
         finally { _busy = false; if (this != null) UpdateView(); }
     }

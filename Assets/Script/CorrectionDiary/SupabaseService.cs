@@ -36,13 +36,6 @@ public class SupabaseService : MonoBehaviour
         public int Best;              // 最長記録 (クラウドに保存されている値)
     }
 
-    /// <summary>ユーザー名とアバター (12色の番号)</summary>
-    public struct ProfileInfo
-    {
-        public string DisplayName;    // 未設定なら空
-        public int AvatarColor;       // 0〜11
-    }
-
     public struct SignUpResult
     {
         public bool NeedsEmailConfirmation;
@@ -76,25 +69,6 @@ public class SupabaseService : MonoBehaviour
 
     /// <summary>ログイン/ログアウトのたびに呼ばれる</summary>
     public event Action AuthChanged;
-
-    /// <summary>ユーザー名・アバターが変わったとき (ログイン直後の読み込み、保存、ログアウト) に呼ばれる</summary>
-    public event Action ProfileChanged;
-
-    /// <summary>ログイン中のプロフィール (ログアウト中は空)</summary>
-    public ProfileInfo Profile { get; private set; } = new ProfileInfo { DisplayName = "" };
-
-    /// <summary>表示に使う名前。ユーザー名が未設定なら、メールアドレスの @ より前を使う。</summary>
-    public string DisplayNameOrFallback
-    {
-        get
-        {
-            if (!string.IsNullOrEmpty(Profile.DisplayName)) return Profile.DisplayName;
-            if (string.IsNullOrEmpty(Email)) return "";
-            int at = Email.IndexOf('@');
-            return at > 0 ? Email.Substring(0, at) : Email;
-        }
-    }
-
     // ------------------------------------------------------------
     // JSON models
     // ------------------------------------------------------------
@@ -122,8 +96,6 @@ public class SupabaseService : MonoBehaviour
     [Serializable] private class CompleteRows { public CompleteRow[] rows; }
     [Serializable] private class ImportRow { public int streak; public string last_date; public bool imported; public int best_streak; }
     [Serializable] private class ImportRows { public ImportRow[] rows; }
-    [Serializable] private class ProfileRow { public string display_name; public int avatar_color; }
-    [Serializable] private class ProfileRows { public ProfileRow[] rows; }
     [Serializable] private class GetRow { public int streak; public string last_date; public bool studied_today; public int best_streak; }
     [Serializable] private class GetRows { public GetRow[] rows; }
 
@@ -170,8 +142,21 @@ public class SupabaseService : MonoBehaviour
         }
     }
 
-    /// <summary>起動時に、保存してあるログインを復元する。復元できたら true。</summary>
-    public async Task<bool> TryRestoreSessionAsync()
+    private Task<bool> _restoreTask;
+
+    /// <summary>
+    /// 起動時に、保存してあるログインを復元する。復元できたら true。
+    /// 複数の場所から同時に呼ばれても、実際に通信するのは1回だけ
+    /// (リフレッシュトークンは1回しか使えないため、二重に送ると失敗してログアウトになってしまう)。
+    /// </summary>
+    public Task<bool> TryRestoreSessionAsync()
+    {
+        if (_restoreTask == null || (_restoreTask.IsCompleted && !IsSignedIn))
+            _restoreTask = DoRestoreSessionAsync();
+        return _restoreTask;
+    }
+
+    private async Task<bool> DoRestoreSessionAsync()
     {
         if (!IsConfigured) return false;
         string saved = PlayerPrefs.GetString(PrefRefresh, "");
@@ -238,47 +223,6 @@ public class SupabaseService : MonoBehaviour
     }
 
     // ------------------------------------------------------------
-    // Profile (ユーザー名・アバターの色)
-    // ------------------------------------------------------------
-
-    /// <summary>クラウドから、プロフィールを読み込む (ログイン直後に自動で呼ばれる)。</summary>
-    public async Task<ProfileInfo> RefreshProfileAsync()
-    {
-        string body = await RpcAsync("get_my_profile", "", false);
-        return SetProfileFrom(body);
-    }
-
-    /// <summary>ユーザー名(20文字まで)とアバターの色(0〜11)を保存する。</summary>
-    public async Task<ProfileInfo> SaveProfileAsync(string displayName, int avatarColor)
-    {
-        string extra =
-            ",\"p_display_name\":\"" + HttpUtil.JsonEscape((displayName ?? "").Trim()) + "\"" +
-            ",\"p_avatar_color\":" + avatarColor;
-        string body = await RpcAsync("set_my_profile", extra, false);
-        return SetProfileFrom(body);
-    }
-
-    private ProfileInfo SetProfileFrom(string body)
-    {
-        var rows = JsonUtility.FromJson<ProfileRows>("{\"rows\":" + body + "}");
-        var p = new ProfileInfo();
-        if (rows != null && rows.rows != null && rows.rows.Length > 0)
-        {
-            p.DisplayName = rows.rows[0].display_name ?? "";
-            p.AvatarColor = Math.Max(0, Math.Min(11, rows.rows[0].avatar_color));
-        }
-        Profile = p;
-        ProfileChanged?.Invoke();
-        return p;
-    }
-
-    private async void LoadProfileQuietAsync()
-    {
-        try { await RefreshProfileAsync(); }
-        catch (Exception e) { Debug.LogWarning("[Supabase] could not load the profile: " + e.Message); }
-    }
-
-    // ------------------------------------------------------------
     // Diary (直近7日分だけクラウドに保存される。古いものはサーバーが自動で消す。見るのはWeb版)
     // ------------------------------------------------------------
 
@@ -304,15 +248,13 @@ public class SupabaseService : MonoBehaviour
 
     private string Url(string path) => ProjectUrl.TrimEnd('/') + path;
 
-    private async Task<string> RpcAsync(string function, string extraJsonFields = "", bool withTimezone = true)
+    private async Task<string> RpcAsync(string function, string extraJsonFields = "")
     {
         RequireConfig();
         if (!IsSignedIn) throw new SupabaseException(401, "Please sign in first.");
 
         await EnsureFreshTokenAsync();
-        string head = withTimezone ? "\"p_timezone\":\"" + HttpUtil.JsonEscape(timeZone) + "\"" : "";
-        if (!withTimezone && extraJsonFields.StartsWith(",")) extraJsonFields = extraJsonFields.Substring(1);
-        string json = "{" + head + extraJsonFields + "}";
+        string json = "{\"p_timezone\":\"" + HttpUtil.JsonEscape(timeZone) + "\"" + extraJsonFields + "}";
         try
         {
             return await PostAsync("/rest/v1/rpc/" + function, json, _accessToken);
@@ -369,11 +311,7 @@ public class SupabaseService : MonoBehaviour
         PlayerPrefs.SetString(PrefEmail, Email);
         PlayerPrefs.Save();
 
-        if (!wasSignedIn)
-        {
-            AuthChanged?.Invoke();
-            LoadProfileQuietAsync();   // ユーザー名・アバターも読み込む (待たない)
-        }
+        if (!wasSignedIn) AuthChanged?.Invoke();
     }
 
     private void ClearSession()
@@ -386,12 +324,7 @@ public class SupabaseService : MonoBehaviour
         PlayerPrefs.DeleteKey(PrefRefresh);
         PlayerPrefs.DeleteKey(PrefEmail);
         PlayerPrefs.Save();
-        Profile = new ProfileInfo { DisplayName = "" };
-        if (was)
-        {
-            AuthChanged?.Invoke();
-            ProfileChanged?.Invoke();
-        }
+        if (was) AuthChanged?.Invoke();
     }
 
     private async Task<string> PostAsync(string path, string json, string bearer)
