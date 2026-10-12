@@ -68,6 +68,15 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 > - キーは Inspector に入力しないでください。Inspector の値はシーンファイル（`.unity`）に保存され、コミットすると GitHub に公開されてしまいます。
 > - `ApiSecrets.json` はビルドしたアプリ（APK など）の中には含まれます。キー入りのビルドは公開しないでください。
 
+## 関連リポジトリ
+
+このアプリが使うサーバー側のコードは、別のリポジトリで管理しています。
+
+| リポジトリ | 内容 |
+|---|---|
+| [my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord) | Cloudflare Workers のコード（日記のリマインダー・Discord 通知） |
+| [database_learnApp](https://github.com/haru452/database_learnApp) | データベース（Supabase）のコードと Web 版 |
+
 ## スクリプト構成
 
 ```

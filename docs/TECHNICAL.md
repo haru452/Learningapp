@@ -80,7 +80,9 @@ flowchart LR
 | Discord（Webhook / Bot） | 添削した日記の送信 | 任意 |
 | リマインダー Worker | 日記を書いていない日に通知 | 任意 |
 
-> Supabase のテーブル・関数定義（`schema.sql`）と、リマインダー Worker のコードは、このリポジトリには含まれていません（Web 版 `streak-app` と共通）。
+> サーバー側のコードは、次のリポジトリで管理しています。
+> - Cloudflare Workers（リマインダー・Discord 通知）：[my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord)
+> - データベース（Supabase のテーブル・関数定義）と Web 版：[database_learnApp](https://github.com/haru452/database_learnApp)
 
 ---
 
@@ -303,6 +305,7 @@ flowchart TD
 | 端末の記録を引き継ぐ | `POST /rest/v1/rpc/import_local_streak` |
 | 日記を保存 | `POST /rest/v1/rpc/save_diary_entry` |
 
+- テーブルと RPC 関数の定義は [database_learnApp](https://github.com/haru452/database_learnApp) にあります。
 - RPC にはすべて `p_timezone`（初期値 `Asia/Tokyo`）を付けて送り、「今日」の判定はサーバー側で行います。
 - 同じ日に何度 `complete_study` を呼んでも、加算は1回だけです（サーバー側で判定）。
 - 日記は直近7日分だけ保存され、古いものはサーバーが自動で削除します（閲覧は Web 版）。
@@ -312,6 +315,7 @@ flowchart TD
 
 ### リマインダー Worker（ReminderClient）
 
+- Worker のコードは [my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord) にあります。
 - `POST {workerUrl}/ping` に `{"date":"yyyy-MM-dd","streak":N}` を送ります。
 - 認証：`Authorization: Bearer {reminderSecret}`
 - 失敗したら最大3回まで再試行します（2秒・4秒待つ）。400・401 は再試行しても直らないので、すぐに諦めます。
@@ -443,4 +447,4 @@ flowchart LR
 - **音声認識の精度は端末に依存**：内蔵の音声認識の品質・対応言語は OS や端末によって変わります。
 - **Talk3D は Android のみ**：iOS 版の STT / TTS は未実装です。
 - **LLM のモデル（.gguf）はリポジトリに含まない**：サイズが大きいため、各自で用意する必要があります。
-- **Supabase のスキーマとリマインダー Worker は別管理**：このリポジトリだけではクラウド機能を再現できません。
+- **サーバー側は別リポジトリ**：クラウド機能を動かすには、[my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord)（Cloudflare）と [database_learnApp](https://github.com/haru452/database_learnApp)（Supabase）もセットアップする必要があります。
