@@ -238,6 +238,31 @@ public class SupabaseService : MonoBehaviour
     }
 
     // ------------------------------------------------------------
+    // 要約練習 (Versant 対策) の採点結果。点数の推移を見るため、古いものも残る (見るのはWeb版)
+    // ------------------------------------------------------------
+
+    /// <summary>採点結果を1件保存する。</summary>
+    public async Task SaveSummaryResultAsync(
+        string videoId, string videoTitle, int timeLimitSeconds, GeminiApiClient.SummaryGrade grade)
+    {
+        string Field(string name, string value) =>
+            ",\"" + name + "\":\"" + HttpUtil.JsonEscape(value ?? "") + "\"";
+
+        string extra =
+            Field("p_video_id", videoId) +
+            Field("p_video_title", videoTitle) +
+            ",\"p_time_limit\":" + timeLimitSeconds +
+            ",\"p_score\":" + Mathf.Clamp(grade.score, 0, 100) +
+            Field("p_transcript", grade.transcript) +
+            Field("p_reference", grade.referenceSummary) +
+            Field("p_good_points", grade.goodPoints) +
+            Field("p_missed_points", grade.missedPoints) +
+            Field("p_language_feedback", grade.languageFeedback) +
+            Field("p_improved", grade.improvedSummary);
+        await RpcAsync("save_summary_result", extra);
+    }
+
+    // ------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------
     private void RequireConfig()

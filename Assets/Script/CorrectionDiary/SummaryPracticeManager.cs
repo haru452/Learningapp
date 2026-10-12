@@ -15,6 +15,7 @@ using UnityEngine.UI;
 ///                     (動画が最後まで再生されたら、自動で始めることもできる)
 ///  3. [Finish]        時間切れ、またはボタンで終了 → Gemini が動画を見て採点する
 ///  4. 結果: スコア / 押さえた点・抜けた点 / 文法 / お手本の要約 / 改善例
+///     → Discord に送信し、ログイン中ならクラウドにも保存する (点数の推移は Web 版で見られる)
 ///
 /// 聞き取りは DiaryManager と同じく、内蔵の音声認識が無音などで切れても自動で再開する。
 /// (Editor など内蔵認識が使えない環境では、録音した音声をそのまま Gemini に送る)
@@ -57,6 +58,16 @@ public class SummaryPracticeManager : MonoBehaviour
     [Header("Speech")]
     [SerializeField] private string speechLanguage = "en-US";
 
+    [Header("Discord (※ Webhook URL / Botトークンは第三者に見せないこと。空なら ApiSecrets.json の値)")]
+    [Tooltip("ON: 採点が終わったら Discord に送信する")]
+    [SerializeField] private bool sendToDiscord = true;
+    [SerializeField] private string discordWebhookUrl;
+    [SerializeField] private string discordBotToken;
+    [SerializeField] private string discordChannelId;
+
+    [Header("Cloud (任意。ログイン中だけ、採点結果をクラウドに保存する。空欄ならシーンから探す)")]
+    [SerializeField] private SupabaseService supabase;
+
     [Header("UI")]
     [Tooltip("New Video → Start Summary → Finish と、状態によって役割が変わるボタン")]
     [SerializeField] private Button mainButton;
@@ -88,6 +99,7 @@ public class SummaryPracticeManager : MonoBehaviour
 
     private GeminiApiClient _gemini;
     private YouTubeSearchClient _youtube;
+    private DiscordClient _discord;
 
     private State _state = State.Idle;
     private YouTubeSearchClient.Video _video;
@@ -126,9 +138,15 @@ public class SummaryPracticeManager : MonoBehaviour
         var secrets = ApiSecrets.Data;
         geminiApiKey = ApiSecrets.Pick(secrets.geminiApiKey, geminiApiKey);
         youtubeApiKey = ApiSecrets.Pick(secrets.youtubeApiKey, youtubeApiKey);
+        discordWebhookUrl = ApiSecrets.Pick(secrets.discordWebhookUrl, discordWebhookUrl);
+        discordBotToken = ApiSecrets.Pick(secrets.discordBotToken, discordBotToken);
+        discordChannelId = ApiSecrets.Pick(secrets.discordChannelId, discordChannelId);
+
+        if (supabase == null) supabase = FindObjectOfType<SupabaseService>(true);
 
         _gemini = new GeminiApiClient(geminiApiKey, geminiModel, geminiFallbackModel);
         _youtube = new YouTubeSearchClient(youtubeApiKey);
+        _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
     }
 
     private void Start()
@@ -480,8 +498,13 @@ public class SummaryPracticeManager : MonoBehaviour
             _pendingText = null;
             _pendingWav = null;
             ShowGrade(grade);
+            SaveResultToCloudAsync(_video, grade);   // ログイン中なら保存 (待たない)
+
+            string discordError = await SendToDiscordAsync(_video, grade);
             SetState(State.Idle);
-            SetStatus("Done! Tap \"Next Video\" to try another one.");
+            SetStatus(discordError == null
+                ? "Done! Tap \"Next Video\" to try another one."
+                : "Graded, but Discord failed: " + discordError);
         }
         catch (Exception e)
         {
@@ -517,6 +540,45 @@ public class SummaryPracticeManager : MonoBehaviour
             AppendSection(sb, "Model summary", g.referenceSummary);
             AppendSection(sb, "Your summary, improved", g.improvedSummary);
             referenceText.text = sb.ToString().TrimEnd();
+        }
+    }
+
+    // ------------------------------------------------------------
+    // 結果の送信・保存
+    // ------------------------------------------------------------
+    // 失敗しても採点結果は画面に残る。失敗したときはエラーの1行目を返す (成功・送信しない場合は null)
+    private async Task<string> SendToDiscordAsync(YouTubeSearchClient.Video video, GeminiApiClient.SummaryGrade g)
+    {
+        if (!sendToDiscord || !_discord.IsConfigured) return null;
+
+        SetStatus("Sending to Discord...");
+        try
+        {
+            await _discord.SendSummaryResultAsync(
+                DateTime.Now, video.title, video.WatchUrl, Mathf.Clamp(g.score, 0, 100),
+                g.transcript, g.goodPoints, g.missedPoints, g.languageFeedback,
+                g.referenceSummary, g.improvedSummary);
+            return null;
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+            return FirstLine(e.Message);
+        }
+    }
+
+    // 画面の処理を待たせないよう、結果は待たない。失敗しても練習には影響しない
+    private async void SaveResultToCloudAsync(YouTubeSearchClient.Video video, GeminiApiClient.SummaryGrade g)
+    {
+        if (supabase == null || !supabase.IsSignedIn) return;
+
+        try
+        {
+            await supabase.SaveSummaryResultAsync(video.id, video.title, timeLimitSeconds, g);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[SummaryPractice] could not save the result to the cloud: " + e.Message);
         }
     }
 

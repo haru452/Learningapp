@@ -75,6 +75,43 @@ public class DiscordClient
         }
     }
 
+    /// <summary>要約練習 (Versant 対策) の採点結果を送信する。</summary>
+    public async Task SendSummaryResultAsync(
+        DateTime date,
+        string videoTitle,
+        string videoUrl,
+        int score,
+        string summary,
+        string goodPoints,
+        string missedPoints,
+        string languageFeedback,
+        string referenceSummary,
+        string improvedSummary)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("Discord is not configured.");
+
+        // URL を <> で囲んで、動画のプレビュー(埋め込み)を出さない
+        string full =
+            "\U0001F3AC **Summary Practice - " + date.ToString("yyyy-MM-dd HH:mm") + "**\n" +
+            "Score: **" + score + " / 100**\n" +
+            "Video: " + videoTitle + " <" + videoUrl + ">\n\n" +
+            Section("Your summary", summary) +
+            Section("Good points", goodPoints) +
+            Section("Missed points", missedPoints) +
+            Section("Language", languageFeedback) +
+            Section("Model summary", referenceSummary) +
+            Section("Your summary, improved", improvedSummary);
+
+        List<string> chunks = Split(full, MaxMessageLength);
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            await PostAsync(chunks[i]);
+            if (i < chunks.Count - 1)
+                await Task.Delay(500);   // レート制限対策
+        }
+    }
+
     // ------------------------------------------------------------
     // Internal
     // ------------------------------------------------------------
