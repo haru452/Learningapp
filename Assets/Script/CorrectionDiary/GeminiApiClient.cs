@@ -4,6 +4,7 @@ using UnityEngine;
 
 /// <summary>
 /// Gemini API に WAV 音声を直接送り、文字起こし / 添削結果を JSON で受け取る。
+/// YouTube 動画の要約の採点 (Versant 対策) にも使う。
 /// </summary>
 public class GeminiApiClient
 {
@@ -145,6 +146,82 @@ public class GeminiApiClient
     }
 
     // ------------------------------------------------------------
+    // Versant 対策: 動画の要約を採点する
+    // ------------------------------------------------------------
+    [Serializable]
+    public class SummaryGrade
+    {
+        public string transcript;        // 音声を送った場合の文字起こし (テキストを送った場合は空)
+        public int score;                // 0〜100
+        public string referenceSummary;  // お手本の要約
+        public string goodPoints;        // 押さえられていたポイント
+        public string missedPoints;      // 抜けていたポイント・誤解
+        public string languageFeedback;  // 文法・言い回しの指摘
+        public string improvedSummary;   // ユーザーの要約を活かした改善例
+    }
+
+    private const string SummaryGradePrompt =
+        "You are an examiner preparing an English learner for the Versant English test " +
+        "(similar to the \"Story Retelling\" / \"Summary\" tasks).\n" +
+        "The learner watched the attached video once, then had {0} seconds to summarize it out loud in English.\n" +
+        "{1}\n" +
+        "Evaluate the summary against the video:\n" +
+        "- \"score\": an integer from 0 to 100. Weigh content most (were the main idea and key points captured, " +
+        "and is anything wrong?), then clarity and organization, then grammar and vocabulary. " +
+        "Remember it was spoken under time pressure, so do not expect a complete summary for a high score.\n" +
+        "- \"referenceSummary\": a model summary of the video in 3-4 simple sentences that could be said in {0} seconds.\n" +
+        "- \"goodPoints\": the key points the learner covered, as short bullet lines starting with \"- \".\n" +
+        "- \"missedPoints\": important points the learner missed or got wrong, as short bullet lines starting with \"- \".\n" +
+        "- \"languageFeedback\": at most 3 grammar or wording corrections, each like \"I has -> I had (past tense)\". " +
+        "Ignore punctuation and capitalization.\n" +
+        "- \"improvedSummary\": rewrite the learner's own summary as natural, correct English, " +
+        "keeping their structure but fixing errors and adding the most important missing point.\n" +
+        "Write all feedback in simple English. If the learner said nothing meaningful, give score 0 " +
+        "and still fill referenceSummary.";
+
+    private const string SpokenSummaryNote =
+        "Their speech was transcribed automatically, so punctuation may be missing and a word may occasionally be " +
+        "misrecognized. Set \"transcript\" to an empty string.\n\nThe learner's summary:\n";
+
+    private const string AudioSummaryNote =
+        "Their spoken summary is the attached audio. First set \"transcript\" to EXACTLY what they said, " +
+        "keeping any grammar mistakes.";
+
+    private const string SummaryGradeSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{" +
+        "\"transcript\":{\"type\":\"STRING\"}," +
+        "\"score\":{\"type\":\"INTEGER\"}," +
+        "\"referenceSummary\":{\"type\":\"STRING\"}," +
+        "\"goodPoints\":{\"type\":\"STRING\"}," +
+        "\"missedPoints\":{\"type\":\"STRING\"}," +
+        "\"languageFeedback\":{\"type\":\"STRING\"}," +
+        "\"improvedSummary\":{\"type\":\"STRING\"}}," +
+        "\"required\":[\"transcript\",\"score\",\"referenceSummary\",\"goodPoints\"," +
+        "\"missedPoints\",\"languageFeedback\",\"improvedSummary\"]}";
+
+    /// <summary>
+    /// YouTube 動画をお手本に、ユーザーが話した要約を採点する。
+    /// spokenSummary (内蔵の音声認識の結果) か wav (録音) のどちらかを渡す。
+    /// </summary>
+    public async Task<SummaryGrade> GradeVideoSummaryAsync(
+        string youtubeUrl, int timeLimitSeconds, string spokenSummary, byte[] wav = null)
+    {
+        string note = wav != null ? AudioSummaryNote : SpokenSummaryNote + spokenSummary;
+        string prompt = SummaryGradePrompt
+            .Replace("{0}", timeLimitSeconds.ToString())
+            .Replace("{1}", note);
+
+        // 動画はプロンプトより前に置くのが推奨されている
+        string parts = YouTubePart(youtubeUrl) + "," + TextPart(prompt) + (wav != null ? "," + AudioPart(wav) : "");
+
+        string innerJson = await GeneratePartsAsync(parts, SummaryGradeSchema);
+        var result = JsonUtility.FromJson<SummaryGrade>(innerJson);
+        if (result == null) throw new Exception("Could not parse Gemini response: " + innerJson);
+        if (wav == null) result.transcript = spokenSummary;
+        return result;
+    }
+
+    // ------------------------------------------------------------
     // Internal
     // ------------------------------------------------------------
     private const int MaxAttemptsPerModel = 3;
@@ -190,21 +267,33 @@ public class GeminiApiClient
         throw lastError;
     }
 
-    private async Task<string> GenerateAsync(byte[] wav, string prompt, string schemaJson)
+    private Task<string> GenerateAsync(byte[] wav, string prompt, string schemaJson)
+    {
+        // wav が null のときはテキストのみのリクエストにする
+        string parts = TextPart(prompt) + (wav != null ? "," + AudioPart(wav) : "");
+        return GeneratePartsAsync(parts, schemaJson);
+    }
+
+    private static string TextPart(string text) =>
+        "{\"text\":\"" + HttpUtil.JsonEscape(text) + "\"}";
+
+    private static string AudioPart(byte[] wav) =>
+        "{\"inline_data\":{\"mime_type\":\"audio/wav\",\"data\":\"" + Convert.ToBase64String(wav) + "\"}}";
+
+    // 公開されている YouTube 動画は URL をそのまま渡せる
+    private static string YouTubePart(string videoUrl) =>
+        "{\"file_data\":{\"file_uri\":\"" + HttpUtil.JsonEscape(videoUrl) + "\"}}";
+
+    /// <param name="partsJson">parts 配列の中身 (カンマ区切りの JSON オブジェクト)</param>
+    private async Task<string> GeneratePartsAsync(string partsJson, string schemaJson)
     {
         if (string.IsNullOrEmpty(_apiKey))
             throw new InvalidOperationException("Gemini API key is not set.");
 
-        // wav が null のときはテキストのみのリクエストにする
-        string audioPart = wav != null
-            ? ",{\"inline_data\":{\"mime_type\":\"audio/wav\",\"data\":\"" + Convert.ToBase64String(wav) + "\"}}"
-            : "";
-
         // JsonUtility は null/空フィールドも出力してしまうため、リクエストは文字列で組み立てる
         string body =
             "{\"contents\":[{\"parts\":[" +
-                "{\"text\":\"" + HttpUtil.JsonEscape(prompt) + "\"}" +
-                audioPart +
+                partsJson +
             "]}]," +
             "\"generationConfig\":{" +
                 "\"responseMimeType\":\"application/json\"," +

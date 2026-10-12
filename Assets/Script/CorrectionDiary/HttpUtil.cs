@@ -54,6 +54,27 @@ public static class HttpUtil
         }
     }
 
+    public static async Task<string> GetAsync(string url, int timeoutSeconds = 30)
+    {
+        using (var req = UnityWebRequest.Get(url))
+        {
+            req.timeout = timeoutSeconds;
+
+            var op = req.SendWebRequest();
+            while (!op.isDone)
+                await Task.Yield();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                throw new HttpException(
+                    req.responseCode,
+                    $"HTTP {req.responseCode} : {req.error}\n{req.downloadHandler?.text}");
+            }
+
+            return req.downloadHandler.text;
+        }
+    }
+
     /// <summary>JSON文字列リテラル用のエスケープ (前後のダブルクォートは含まない)</summary>
     public static string JsonEscape(string s)
     {

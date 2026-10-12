@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "ai.undream.llm": "https://github.com/undreamai/LLMUnity.git",
+    "net.gree.unity-webview": "https://github.com/gree/unity-webview.git?path=/dist/package",
     "com.unity.2d.sprite": "1.0.0",
     "com.unity.2d.tilemap": "1.0.0",
     "com.unity.ads": "4.4.2",

@@ -338,6 +338,13 @@
         "com.vrmc.gltf": "0.131.0"
       }
     },
+    "net.gree.unity-webview": {
+      "version": "https://github.com/gree/unity-webview.git?path=/dist/package",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "9abef18e1a79c0d89759dc8c44173f7c818c25da"
+    },
     "com.unity.modules.ai": {
       "version": "1.0.0",
       "depth": 0,

@@ -1,10 +1,13 @@
 # Voice English Corrector（英語音声添削アプリ）
 
 スマホに向かって英語で話すと、文字起こしして **Gemini API** または **DeepL Write API** で自然な英語に添削してくれる、Unity 製の英語学習アプリです。
-話した内容を英語日記として残して連続記録（ストリーク）をつけたり、3D キャラクターと英語で会話したりもできます。
+話した内容を英語日記として残して連続記録（ストリーク）をつけたり、YouTube の英語動画を要約するスピーキング練習（Versant 対策）をしたり、3D キャラクターと英語で会話したりもできます。
 
 > このリポジトリは、[Learningapp](https://github.com/haru452/Learningapp)（記事「その１」の時点のコード）の続きです。
-> 「その１」からの主な変更：3D キャラクターが感情に合わせて表情を変えるようにした / タッチ反応を削除した
+> 「その１」からの主な変更：
+> - **Summary 画面を追加**：YouTube の短い英語動画を見て、制限時間内に話して要約し、Gemini が採点する（Versant 対策）
+> - 3D キャラクターが、返事の感情に合わせて表情を変えるようにした
+> - 3D キャラクターのタッチ反応を削除した
 
 📝 **解説記事（Qiita）**：[その１：Unity で「話した英語を AI が添削してくれる」英語日記アプリを作った](https://qiita.com/haru452/items/8656d7d15db5d20c7b41)
 
@@ -14,7 +17,7 @@
 
 ## 主な機能
 
-アプリは3つの画面に分かれています。
+アプリは4つの画面に分かれています。
 
 ### Practice：英語の添削
 - 録音ボタンで話し始め、もう一度押すと停止して添削
@@ -31,6 +34,15 @@
 - **Discord 連携**（任意）：添削した日記を Discord に送信。元の文から直した単語には下線を付ける
 - **リマインダー**（任意）：夜までに日記を書いていないと Discord に通知
 
+### Summary：動画の要約練習（Versant 対策）
+- YouTube Data API で、字幕付きの短い英語動画（40秒〜2分半）を毎回ランダムに出題
+- 動画はアプリ内の埋め込みプレーヤーで再生（Editor ではブラウザで開く）
+- 動画が終わると制限時間（標準60秒）のカウントダウンが始まり、話して要約する
+- Gemini が動画そのものを見て採点：スコア・押さえた点・抜けた点・文法の指摘・お手本の要約・改善例
+- 音声認識が途中で切れても、日記モードと同じく自動で再開する
+- YouTube Data API の無料枠は 1 日 10,000 ユニットで、動画の検索 1 回に 100 ユニット使う（1 日に約 100 回まで出題できる）
+- Summary 画面は、Unity のメニュー **Tools → Summary Practice → Create Summary Screen** で、今のシーンに自動で組み立てられる（`Assets/Editor/SummaryScreenBuilder.cs`）
+
 ### Talk：3D キャラクターとの英会話（実験中）
 - VRM キャラクターと音声で会話（LLM は LLMUnity でスマホの中で動かす）
 - 返事は1文できるたびに読み上げ、口パク・うなずきも付く
@@ -44,7 +56,7 @@
 | Unity | 2022.3.62f3 |
 | 対象 OS | Android（iOS 向けのコードもあるが未検証） |
 | 言語 | C# |
-| 主なパッケージ | TextMeshPro、[UniVRM](https://github.com/vrm-c/UniVRM)、[LLMUnity](https://github.com/undreamai/LLMUnity) |
+| 主なパッケージ | TextMeshPro、[UniVRM](https://github.com/vrm-c/UniVRM)、[LLMUnity](https://github.com/undreamai/LLMUnity)、[unity-webview](https://github.com/gree/unity-webview) |
 
 ## セットアップ
 
@@ -76,7 +88,8 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "reminderWorkerUrl": "",
   "reminderSecret": "",
   "supabaseUrl": "",
-  "supabaseAnonKey": ""
+  "supabaseAnonKey": "",
+  "youtubeApiKey": ""
 }
 ```
 
@@ -84,6 +97,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 |---|---|---|
 | geminiApiKey | [Google AI Studio](https://aistudio.google.com/apikey) | ✅ |
 | deeplApiKey | [DeepL API](https://www.deepl.com/pro-api) | DeepL Write を使う場合 |
+| youtubeApiKey | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)（YouTube Data API v3 を有効化） | 要約練習を使う場合 |
 | supabaseUrl / supabaseAnonKey | [Supabase](https://supabase.com/) | ログイン・日記保存を使う場合 |
 | discordWebhookUrl | Discord のサーバー設定 | 任意 |
 | reminderWorkerUrl / reminderSecret | 自前のリマインダー用 Worker | 任意 |
@@ -108,9 +122,12 @@ Assets/Script/
 ├── CorrectionDiary/
 │   ├── AppManager.cs            … 録音 → 文字起こし → 添削 → 表示 の全体制御
 │   ├── DiaryManager.cs          … 日記モードの制御
+│   ├── SummaryPracticeManager.cs… 動画の要約練習（Versant 対策）の制御
+│   ├── YouTubeSearchClient.cs   … YouTube Data API で短い動画を検索
+│   ├── YouTubePlayerView.cs     … YouTube をアプリ内（WebView）で再生
 │   ├── AudioRecorder.cs         … マイク録音と WAV 変換
 │   ├── NativeSpeechRecognizer.cs… 端末内蔵の音声認識ラッパー
-│   ├── GeminiApiClient.cs       … Gemini API（文字起こし・添削）
+│   ├── GeminiApiClient.cs       … Gemini API（文字起こし・添削・要約の採点）
 │   ├── DeepLApiClient.cs        … DeepL Write API（言い換え）
 │   ├── TextDiff.cs              … 原文と添削後の差分計算
 │   ├── DiaryStreakTracker.cs / DiaryStreakView.cs … 連続記録

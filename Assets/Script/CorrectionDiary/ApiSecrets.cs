@@ -21,6 +21,7 @@ public class ApiSecrets
     public string reminderSecret;
     public string supabaseUrl;
     public string supabaseAnonKey;
+    public string youtubeApiKey;
 
     private const string ResourceName = "ApiSecrets";
     private static ApiSecrets _data;
