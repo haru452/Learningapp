@@ -89,7 +89,7 @@ Assets/Script/
 └── AndroidManifest.xml          … マイク権限など
 ```
 
-詳しい要件は [`Assets/prd.md`](Assets/prd.md) を参照してください。
+内部の仕組みは [`docs/TECHNICAL.md`](docs/TECHNICAL.md)、もともとの要件は [`Assets/prd.md`](Assets/prd.md) を参照してください。
 
 ## ビルド
 
