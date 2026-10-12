@@ -109,3 +109,12 @@ Assets/Script/
 
 - 次のものは `.gitignore` で除外しています：`Library/`、`Temp/`、`Build/`、LLMUnity のライブラリ、`*.gguf`（AI モデル）
 - GitHub は 100MB を超えるファイルを受け付けません。大きいファイルを追加するときは注意してください。
+
+## ライセンス
+
+このプロジェクトのコードは [MIT License](LICENSE) で公開しています。
+
+ただし、次のものは MIT License の対象外です。それぞれの利用条件に従ってください。
+
+- `Assets/My assets/amanogawa.vrm`：VRM モデルの中に書き込まれた利用条件（再配布・改変は不可）
+- `Packages/` 内のパッケージ（UniVRM など）、TextMesh Pro、LLMUnity：各パッケージのライセンス
