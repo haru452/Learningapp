@@ -1,0 +1,61 @@
+# --- Unity 生成ファイル ---
+Library/
+Temp/
+Obj/
+Logs/
+MemoryCaptures/
+UserSettings/
+
+# --- ビルド成果物・エクスポート ---
+/[Bb]uild/
+/[Bb]uilds/
+*.apk
+*.aab
+*.unitypackage
+
+# --- OS固有ファイル ---
+.DS_Store
+Thumbs.db
+
+
+# --- ビルド成果物・実行ファイル ---
+*.exe
+*.app
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+/[Bb]uild/
+/[Bb]uilds/
+/dist/
+/build/
+
+# --- ログ・一時ファイル・キャッシュ ---
+*.log
+*.sqlite
+*.db
+__pycache__/
+.pytest_cache/
+.vscode/
+.idea/
+
+# --- LLMUnity (大きいファイル) ---
+Assets/StreamingAssets/LlamaLib*/
+Assets/StreamingAssets/LlamaLib*.meta
+LLMUnityBuild/
+*.gguf
+*.gguf.meta
+
+# --- APIキー (GitHubに上げない) ---
+Assets/Resources/ApiSecrets.json
+Assets/Resources/ApiSecrets.json.meta
+
+# --- Unity が自動生成する IDE ファイル (PCのユーザー名が入る) ---
+*.csproj
+*.sln
+
+# --- 公開しない画像 ---
+Assets/My assets/スクリーンショット 2026-10-09 162612.png
+Assets/My assets/スクリーンショット 2026-10-09 162612.png.meta
+Assets/My assets/260913132852632.JPG
+Assets/My assets/260913132852632.JPG.meta
