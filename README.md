@@ -1,39 +1,58 @@
 # Voice English Corrector（英語音声添削アプリ）
 
-スマホに向かって話した英語を文字起こしし、**Gemini API** または **DeepL Write API** で自然な英語に添削して表示する Unity 製アプリです。
-話した内容を日記として残す「日記モード」もあります。
+スマホに向かって英語で話すと、文字起こしして **Gemini API** または **DeepL Write API** で自然な英語に添削してくれる、Unity 製の英語学習アプリです。
+話した内容を英語日記として残して連続記録（ストリーク）をつけたり、3D キャラクターと英語で会話したりもできます。
+
+| 添削（Practice） | 3D キャラとの会話（Talk・実験中） |
+|---|---|
+| <img src="docs/images/demo_correction.gif" width="240"> | <img src="docs/images/demo_talk.gif" width="240"> |
 
 ## 主な機能
 
-- **音声入力**：録音ボタンで話し始め、もう一度押すと停止
-- **文字起こし**：端末内蔵の音声認識（Android: SpeechRecognizer / iOS: SFSpeechRecognizer）を使用。使えない環境（Unity Editor など）では録音した WAV を Gemini で文字起こし
+アプリは3つの画面に分かれています。
+
+### Practice：英語の添削
+- 録音ボタンで話し始め、もう一度押すと停止して添削
+- **文字起こし**：端末内蔵の音声認識（Android: SpeechRecognizer / iOS: SFSpeechRecognizer）。使えない環境（Unity Editor など）では録音した WAV を Gemini で文字起こし
 - **添削エンジンの切り替え**
   - Gemini：文法の修正と、なぜ直したかの解説
   - DeepL Write：より自然な言い回しへの言い換え
-- **原文と添削後の比較表示**（差分表示つき）
-- **日記モード**：話した日記を保存し、連続記録（ストリーク）を表示
-- **リマインダー / Discord 通知**（任意）
+
+### Diary：英語日記
+- 停止ボタンを押すまで話し続けられる（音声認識が途中で切れても自動で再開）
+- 話し終わったら、日記全体をまとめて添削
+- **連続記録（ストリーク）**：日記を書いた日数と、今週の達成状況を表示
+- **ログイン・クラウド保存**（任意）：Supabase でログインすると、記録と日記をクラウドに保存（Web 版と共通）
+- **Discord 連携**（任意）：添削した日記を Discord に送信。元の文から直した単語には下線を付ける
+- **リマインダー**（任意）：夜までに日記を書いていないと Discord に通知
+
+### Talk：3D キャラクターとの英会話（実験中）
+- VRM キャラクターと音声で会話（LLM は LLMUnity でスマホの中で動かす）
+- 返事は1文できるたびに読み上げ、口パク・うなずき・表情も付く
+- キャラクターをタッチすると反応する
+- 現在は Android のみ対応
 
 ## 動作環境
 
 | 項目 | 内容 |
 |---|---|
 | Unity | 2022.3.62f3 |
-| 対象 OS | Android / iOS |
+| 対象 OS | Android（iOS 向けのコードもあるが未検証） |
 | 言語 | C# |
-| 主なパッケージ | TextMeshPro, [LLMUnity](https://github.com/undreamai/LLMUnity) |
+| 主なパッケージ | TextMeshPro、[UniVRM](https://github.com/vrm-c/UniVRM)、[LLMUnity](https://github.com/undreamai/LLMUnity) |
 
 ## セットアップ
 
 1. このリポジトリをクローンします。
    ```
-   git clone https://github.com/haru452/My-project.git
+   git clone https://github.com/haru452/Learningapp.git
    ```
 2. Unity Hub で **Unity 2022.3.62f3** を使ってフォルダを開きます。
    初回は `Library/` の生成やパッケージのダウンロードに時間がかかります。
 3. LLMUnity のライブラリ（`Assets/StreamingAssets/LlamaLib-*`）はサイズが大きいため、リポジトリには含めていません。Unity でプロジェクトを開くと LLMUnity が自動でダウンロードします。
-4. `Assets/Scenes/SampleScene.unity` を開きます。
-5. 下の「API キーの設定」に従ってキーを入力し、再生（Play）します。
+4. Talk 画面を使う場合は、LLMUnity の `LLM` コンポーネントで使う AI モデル（`.gguf`）をダウンロードして設定してください。モデルもサイズが大きいため、リポジトリには含めていません。
+5. `Assets/Scenes/SampleScene.unity` を開きます。
+6. 下の「API キーの設定」に従ってキーを入力し、再生（Play）します。
 
 ## API キーの設定
 
@@ -90,8 +109,9 @@ Assets/Script/
 │   ├── DeepLApiClient.cs        … DeepL Write API（言い換え）
 │   ├── TextDiff.cs              … 原文と添削後の差分計算
 │   ├── DiaryStreakTracker.cs / DiaryStreakView.cs … 連続記録
-│   ├── SupabaseService.cs / AuthPanel.cs … ログイン・データ保存
+│   ├── SupabaseService.cs / AuthPanel.cs / LoginGate.cs … ログイン・データ保存
 │   ├── ReminderClient.cs        … リマインダー Worker への通知
+│   ├── ApiSecrets.cs            … API キーの読み込み
 │   └── HttpUtil.cs              … 通信の共通処理
 ├── Talk3D/                      … 3D キャラクターとの会話（実験中）
 ├── SpeechRecognizerBridge.mm    … iOS 用音声認識ブリッジ
@@ -103,7 +123,7 @@ Assets/Script/
 ## ビルド
 
 - **Android**：File → Build Settings → Android を選んで Build。マイクの権限が必要です。
-- **iOS**：iOS を選んで Build し、Xcode で `Info.plist` にマイクと音声認識の利用目的（`NSMicrophoneUsageDescription` / `NSSpeechRecognitionUsageDescription`）を追加します。
+- **iOS**：iOS を選んで Build します。`Info.plist` へのマイク・音声認識の利用目的の追加と `Speech.framework` のリンクは、`Assets/Editor/IosPostBuild.cs` がビルド後に自動で行います（iOS 実機では未検証）。
 
 ## 注意
 
