@@ -242,8 +242,13 @@ public class SupabaseService : MonoBehaviour
     // ------------------------------------------------------------
 
     /// <summary>採点結果を1件保存する。</summary>
+    /// <param name="takenAtUtc">
+    /// 練習した日時。ログイン前の結果を後から送るときに、記録の日付をその日にするために使う。
+    /// (サーバーの関数が古く、この引数を受け付けない場合は、付けずに送り直す)
+    /// </param>
     public async Task SaveSummaryResultAsync(
-        string videoId, string videoTitle, int timeLimitSeconds, GeminiApiClient.SummaryGrade grade)
+        string videoId, string videoTitle, int timeLimitSeconds, GeminiApiClient.SummaryGrade grade,
+        DateTime? takenAtUtc = null)
     {
         string Field(string name, string value) =>
             ",\"" + name + "\":\"" + HttpUtil.JsonEscape(value ?? "") + "\"";
@@ -262,7 +267,82 @@ public class SupabaseService : MonoBehaviour
             Field("p_missed_points", grade.missedPoints) +
             Field("p_language_feedback", grade.languageFeedback) +
             Field("p_improved", grade.improvedSummary);
-        await RpcAsync("save_summary_result", extra);
+
+        if (takenAtUtc == null)
+        {
+            await RpcAsync("save_summary_result", extra);
+            return;
+        }
+
+        string takenAt = takenAtUtc.Value.ToUniversalTime()
+            .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        try
+        {
+            await RpcAsync("save_summary_result", extra + Field("p_taken_at", takenAt));
+        }
+        catch (SupabaseException e) when (e.StatusCode == 404)
+        {
+            // summary.sql を更新する前のデータベース (p_taken_at が無い) → 日時なしで保存する
+            Debug.LogWarning("[Supabase] save_summary_result does not accept p_taken_at yet. Saving without it.");
+            await RpcAsync("save_summary_result", extra);
+        }
+    }
+
+    // ------------------------------------------------------------
+    // ログイン前に受けた要約練習の結果を、ログインしたときにまとめて送る
+    // ------------------------------------------------------------
+    private bool _uploadingPending;
+
+    /// <summary>端末に一時保存されていた結果を送り終えたとき (引数: 送れた件数)</summary>
+    public event Action<int> PendingSummaryUploaded;
+
+    /// <summary>
+    /// 端末に一時保存されている要約練習の結果を、古い順にクラウドへ送る。送れたものは端末から消す。
+    /// 通信できないなどで失敗したら、残りは次回 (次のログイン・アプリの起動時) に送る。送れた件数を返す。
+    /// </summary>
+    public async Task<int> UploadPendingSummaryResultsAsync()
+    {
+        if (_uploadingPending || !IsSignedIn) return 0;
+        _uploadingPending = true;
+        int uploaded = 0;
+        try
+        {
+            var list = PendingSummaryStore.Load();
+            while (list.Count > 0 && IsSignedIn)
+            {
+                var item = list[0];
+                try
+                {
+                    await SaveSummaryResultAsync(item.videoId, item.videoTitle, item.timeLimitSeconds, item.grade, item.TakenAtUtc);
+                    uploaded++;
+                }
+                catch (SupabaseException e) when (e.StatusCode == 400)
+                {
+                    // 内容が不正で、何度送っても保存できないもの → 捨てる
+                    Debug.LogWarning("[Supabase] dropped a pending summary result that cannot be saved: " + e.Message);
+                }
+                catch (Exception e)
+                {
+                    // 通信エラーなど → 残しておき、次回に送る
+                    Debug.LogWarning("[Supabase] could not upload pending summary results now: " + e.Message);
+                    break;
+                }
+
+                list.RemoveAt(0);
+                PendingSummaryStore.Save(list);
+            }
+        }
+        finally
+        {
+            _uploadingPending = false;
+        }
+
+        if (uploaded > 0)
+        {
+            Debug.Log($"[Supabase] uploaded {uploaded} summary result(s) taken before signing in.");
+            PendingSummaryUploaded?.Invoke(uploaded);
+        }
+        return uploaded;
     }
 
     // ------------------------------------------------------------
@@ -339,7 +419,11 @@ public class SupabaseService : MonoBehaviour
         PlayerPrefs.SetString(PrefEmail, Email);
         PlayerPrefs.Save();
 
-        if (!wasSignedIn) AuthChanged?.Invoke();
+        if (!wasSignedIn)
+        {
+            AuthChanged?.Invoke();
+            _ = UploadPendingSummaryResultsAsync();   // ログイン前に受けた要約練習の結果を送る (待たない)
+        }
     }
 
     private void ClearSession()

@@ -578,18 +578,33 @@ public class SummaryPracticeManager : MonoBehaviour
         }
     }
 
-    // 画面の処理を待たせないよう、結果は待たない。失敗しても練習には影響しない
+    // 画面の処理を待たせないよう、結果は待たない。失敗しても練習には影響しない。
+    // ログインしていないとき・送れなかったときは端末に一時保存し、ログインしたときに SupabaseService がまとめて送る。
     private async void SaveResultToCloudAsync(YouTubeSearchClient.Video video, GeminiApiClient.SummaryGrade g)
     {
-        if (supabase == null || !supabase.IsSignedIn) return;
+        if (supabase == null || !supabase.IsConfigured) return;
+
+        DateTime takenAt = DateTime.UtcNow;
+        if (!supabase.IsSignedIn)
+        {
+            PendingSummaryStore.Add(video.id, video.title, timeLimitSeconds, g, takenAt);
+            Debug.Log("[SummaryPractice] not signed in: the result was kept on this device and will be uploaded after signing in.");
+            return;
+        }
 
         try
         {
-            await supabase.SaveSummaryResultAsync(video.id, video.title, timeLimitSeconds, g);
+            await supabase.SaveSummaryResultAsync(video.id, video.title, timeLimitSeconds, g, takenAt);
+            if (PendingSummaryStore.Count > 0) _ = supabase.UploadPendingSummaryResultsAsync();   // 前に送れなかった分も、ついでに送る
+        }
+        catch (SupabaseService.SupabaseException e) when (e.StatusCode == 400)
+        {
+            Debug.LogWarning("[SummaryPractice] the result could not be saved (invalid data): " + e.Message);
         }
         catch (Exception e)
         {
-            Debug.LogWarning("[SummaryPractice] could not save the result to the cloud: " + e.Message);
+            Debug.LogWarning("[SummaryPractice] could not save the result to the cloud. Keeping it to upload later: " + e.Message);
+            PendingSummaryStore.Add(video.id, video.title, timeLimitSeconds, g, takenAt);
         }
     }
 
