@@ -151,9 +151,10 @@ public class SummaryPracticeManager : MonoBehaviour
 
         if (supabase == null) supabase = FindObjectOfType<SupabaseService>(true);
 
-        // 上限 (429) になったら、お題スピーキング用の 2 つ目のキーを借りる
-        _gemini = new GeminiApiClient(geminiApiKey, geminiModel, geminiFallbackModel,
-                                      backupApiKey: ApiSecrets.Data.geminiApiKey2);
+        // 要約練習のキー (無ければ日記のキー) を使い、上限 (429) になったら日記・お題スピーキングのキーを借りる
+        string summaryKey = ApiSecrets.Pick(secrets.geminiSummaryApiKey, geminiApiKey);
+        _gemini = new GeminiApiClient(summaryKey, geminiModel, geminiFallbackModel,
+            backupApiKeys: new[] { geminiApiKey, secrets.geminiTopicApiKey });
         _youtube = new YouTubeSearchClient(youtubeApiKey);
         _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
     }

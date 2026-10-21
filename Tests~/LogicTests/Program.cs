@@ -92,6 +92,11 @@ public static class LogicTests
         var two = GeminiApiClient.AttemptOrder(new[] { "k1", "k2" }, new[] { "main", "lite" });
         Check(Show(two) == "0:main 0:lite 1:main 1:lite", "two keys: own key first, then the other " + Show(two));
 
+        var three = GeminiApiClient.AttemptOrder(GeminiApiClient.KeyList("own", new[] { "b1", "b2" }), new[] { "main", "lite" });
+        Check(Show(three) == "0:main 0:lite 1:main 1:lite 2:main 2:lite", "three keys: own, then the others in order " + Show(three));
+        var keys = GeminiApiClient.KeyList("own", new[] { "", "own", null, "b2" });
+        Check(string.Join(",", keys) == "own,b2", "key list drops empty and duplicate keys " + string.Join(",", keys));
+
         var oneKey = GeminiApiClient.AttemptOrder(new[] { "k1", "" }, new[] { "main", "lite" });
         Check(Show(oneKey) == "0:main 0:lite", "empty second key is skipped " + Show(oneKey));
 

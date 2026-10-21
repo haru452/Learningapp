@@ -131,9 +131,9 @@ public class DiaryManager : MonoBehaviour
         reminderWorkerUrl = ApiSecrets.Pick(secrets.reminderWorkerUrl, reminderWorkerUrl);
         reminderSecret = ApiSecrets.Pick(secrets.reminderSecret, reminderSecret);
         
-        // 上限 (429) になったら、お題スピーキング用の 2 つ目のキーを借りる
+        // 上限 (429) になったら、要約練習・お題スピーキングのキーを借りる
         _gemini = new GeminiApiClient(geminiApiKey, geminiModel, geminiFallbackModel,
-                                      backupApiKey: ApiSecrets.Data.geminiApiKey2);
+            backupApiKeys: new[] { ApiSecrets.Data.geminiSummaryApiKey, ApiSecrets.Data.geminiTopicApiKey });
         _deepl = new DeepLApiClient(deeplApiKey, deeplUseFreeApi, deeplTargetLang);
         _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
         _reminder = new ReminderClient(reminderWorkerUrl, reminderSecret);

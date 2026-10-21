@@ -13,25 +13,33 @@ public class GeminiApiClient
     private const string EndpointBase =
         "https://generativelanguage.googleapis.com/v1beta/models/";
 
-    private readonly string[] _apiKeys;   // [0] = この機能のキー、[1] = 上限のときに借りるもう 1 つのキー
+    private readonly string[] _apiKeys;   // [0] = この機能のキー、[1..] = 上限のときに借りるほかのキー (順に)
     private readonly string _model;
     private readonly string _fallbackModel;
 
     /// <param name="fallbackModel">メインモデルが混雑時(503等)に切り替える予備モデル。空なら使わない</param>
-    /// <param name="backupApiKey">
-    /// apiKey が利用上限 (429) になったときに使うもう 1 つのキー。空なら使わない。
+    /// <param name="backupApiKeys">
+    /// apiKey が利用上限 (429) になったときに順に使うほかのキー。空のものは使わない。
     /// ※ Gemini の上限は「キーごと」ではなく「Google Cloud のプロジェクトごと」。別のプロジェクトで作ったキーでないと枠は増えない
     /// </param>
     public GeminiApiClient(string apiKey, string model = "gemini-3.8-flash", string fallbackModel = null,
-                           string backupApiKey = null)
+                           string[] backupApiKeys = null)
     {
-        _apiKeys = new[] { apiKey, backupApiKey };
+        _apiKeys = KeyList(apiKey, backupApiKeys);
         _model = model;
         _fallbackModel = fallbackModel;
     }
 
+    /// <summary>自分のキー → ほかのキーの順に並べる。空・重複したキーは除く</summary>
+    public static string[] KeyList(string apiKey, string[] backupApiKeys)
+    {
+        var all = new List<string> { apiKey };
+        if (backupApiKeys != null) all.AddRange(backupApiKeys);
+        return all.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim()).Distinct().ToArray();
+    }
+
     /// <summary>
-    /// 試す順番: 自分のキーでメイン → 予備モデル、それでも上限ならもう片方のキーでメイン → 予備モデル。
+    /// 試す順番: 自分のキーでメイン → 予備モデル、それでも上限なら次のキーでメイン → 予備モデル …。
     /// 空・重複したキーやモデルは飛ばす。key は「空と重複を除いたキー」の番号
     /// </summary>
     public static List<(int key, string model)> AttemptOrder(string[] apiKeys, string[] models)
@@ -44,8 +52,7 @@ public class GeminiApiClient
         return order;
     }
 
-    private List<string> UsableKeys =>
-        _apiKeys.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim()).Distinct().ToList();
+    private List<string> UsableKeys => _apiKeys.ToList();
 
     // ------------------------------------------------------------
     // Result types

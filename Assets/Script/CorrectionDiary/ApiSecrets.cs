@@ -12,8 +12,11 @@ using UnityEngine;
 [Serializable]
 public class ApiSecrets
 {
-    public string geminiApiKey;       // 日記・要約練習で使う Gemini のキー
-    public string geminiApiKey2;      // お題スピーキングで使う 2 つ目のキー (空なら geminiApiKey)。上限になったら互いのキーを借りる
+    // Gemini のキーは画面ごとに分けられる (空なら geminiApiKey を使う)。上限 (429) になったら、ほかの画面のキーを借りる。
+    // ※ 上限は Google Cloud のプロジェクトごとなので、キーはそれぞれ別のプロジェクトで作ること
+    public string geminiApiKey;          // 日記
+    public string geminiSummaryApiKey;   // 要約練習
+    public string geminiTopicApiKey;     // お題スピーキング
     public string deeplApiKey;
     public string discordWebhookUrl;
     public string discordBotToken;
