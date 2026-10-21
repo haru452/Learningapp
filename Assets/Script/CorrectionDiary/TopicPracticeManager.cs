@@ -827,9 +827,60 @@ public class TopicPracticeManager : MonoBehaviour
     // 言い直しの間は、お題 (質問) の場所に読む文を出す (どこを読めばいいか分かるように)
     private bool _showingSentenceAtTop;
 
+    // 読む文を囲む枠 (お題の文字の上に、実行時に作る)
+    private GameObject _sentenceBox;
+    private Vector4 _topicMargin;
+    private static readonly Color SentenceBoxColor = new Color(1f, 1f, 1f, 0.75f);
+    private const float SentenceBoxLine = 3f;
+
+    private void SetSentenceBox(bool on)
+    {
+        if (topicText == null) return;
+        if (_sentenceBox == null)
+        {
+            if (!on) return;
+            _topicMargin = topicText.margin;
+            _sentenceBox = new GameObject("ReadAloudBox", typeof(RectTransform));
+            var box = (RectTransform)_sentenceBox.transform;
+            box.SetParent(topicText.transform, false);
+            box.anchorMin = Vector2.zero;
+            box.anchorMax = Vector2.one;
+            box.offsetMin = Vector2.zero;
+            box.offsetMax = Vector2.zero;
+
+            var fill = _sentenceBox.AddComponent<Image>();      // うっすら背景
+            fill.color = new Color(1f, 1f, 1f, 0.06f);
+            fill.raycastTarget = false;
+
+            // 上下左右の線
+            AddEdge(box, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 1), new Vector2(0, SentenceBoxLine));
+            AddEdge(box, new Vector2(0, 0), new Vector2(1, 0), new Vector2(0.5f, 0), new Vector2(0, SentenceBoxLine));
+            AddEdge(box, new Vector2(0, 0), new Vector2(0, 1), new Vector2(0, 0.5f), new Vector2(SentenceBoxLine, 0));
+            AddEdge(box, new Vector2(1, 0), new Vector2(1, 1), new Vector2(1, 0.5f), new Vector2(SentenceBoxLine, 0));
+        }
+        _sentenceBox.SetActive(on);
+        topicText.margin = on ? new Vector4(24, 16, 24, 16) : _topicMargin;   // 文字が枠に付かないように
+    }
+
+    private static void AddEdge(RectTransform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 size)
+    {
+        var edge = new GameObject("Edge", typeof(RectTransform), typeof(Image));
+        var rt = (RectTransform)edge.transform;
+        rt.SetParent(parent, false);
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.pivot = pivot;
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = size;
+        var img = edge.GetComponent<Image>();
+        img.color = SentenceBoxColor;
+        img.raycastTarget = false;
+    }
+
     private void ShowSentenceAtTop()
     {
         _showingSentenceAtTop = true;
+        SetSentenceBox(true);
         if (kindText != null) kindText.text = "Read aloud  ·  " + (_readIndex + 1) + " / " + _readSentences.Length;
         if (topicText != null) topicText.text = _readSentences[_readIndex];
         if (hintText != null)
@@ -841,6 +892,7 @@ public class TopicPracticeManager : MonoBehaviour
     {
         if (!_showingSentenceAtTop) return;
         _showingSentenceAtTop = false;
+        SetSentenceBox(false);
         if (_topic != null) ShowTopic();
         else ClearTopic();
     }
@@ -1011,6 +1063,7 @@ public class TopicPracticeManager : MonoBehaviour
     private void ClearTopic()
     {
         _showingSentenceAtTop = false;
+        SetSentenceBox(false);
         if (kindText != null) kindText.text = "";
         if (topicText != null) topicText.text = "";
         if (hintText != null) hintText.text = "";
