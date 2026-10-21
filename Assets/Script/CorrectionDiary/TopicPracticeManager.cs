@@ -824,10 +824,32 @@ public class TopicPracticeManager : MonoBehaviour
         }
     }
 
+    // 言い直しの間は、お題 (質問) の場所に読む文を出す (どこを読めばいいか分かるように)
+    private bool _showingSentenceAtTop;
+
+    private void ShowSentenceAtTop()
+    {
+        _showingSentenceAtTop = true;
+        if (kindText != null) kindText.text = "Read aloud  ·  " + (_readIndex + 1) + " / " + _readSentences.Length;
+        if (topicText != null) topicText.text = _readSentences[_readIndex];
+        if (hintText != null)
+            hintText.text = "Read this sentence aloud. \"Read aloud\" checks the words, " +
+                            "\"Pronunciation check\" gives pronunciation tips.";
+    }
+
+    private void RestoreTopicAtTop()
+    {
+        if (!_showingSentenceAtTop) return;
+        _showingSentenceAtTop = false;
+        if (_topic != null) ShowTopic();
+        else ClearTopic();
+    }
+
     private void RefreshReadAloud()
     {
         bool any = _readSentences.Length > 0;
         if (readAloudGroup != null) readAloudGroup.SetActive(any);
+        if (!any || ReadAloudFinished) RestoreTopicAtTop();
         if (!any) return;
         if (ReadAloudFinished)
         {
@@ -840,13 +862,16 @@ public class TopicPracticeManager : MonoBehaviour
 
         if (readAloudText != null)
         {
+            // 読む文は上 (お題の場所) に出すので、ここには結果だけ
             var sb = new StringBuilder();
-            sb.Append("<b>Read aloud (").Append(_readIndex + 1).Append('/').Append(_readSentences.Length).Append(")</b>\n")
-              .Append(_readSentences[_readIndex]);
-            if (!string.IsNullOrEmpty(_lastReadResult)) sb.Append("\n\n").Append(_lastReadResult);
+            sb.Append("<b>Read aloud (").Append(_readIndex + 1).Append('/').Append(_readSentences.Length).Append(")</b>");
+            if (string.IsNullOrEmpty(_lastReadResult) && string.IsNullOrEmpty(_lastPronComment))
+                sb.Append("\nRead the sentence shown at the top.");
+            if (!string.IsNullOrEmpty(_lastReadResult)) sb.Append("\n").Append(_lastReadResult);
             if (!string.IsNullOrEmpty(_lastPronComment)) sb.Append("\n\n<i>").Append(_lastPronComment).Append("</i>");
             readAloudText.text = sb.ToString();
         }
+        ShowSentenceAtTop();
 
         if (readAloudButtonLabel != null)
             readAloudButtonLabel.text = _reading ? "Stop"
@@ -985,6 +1010,7 @@ public class TopicPracticeManager : MonoBehaviour
 
     private void ClearTopic()
     {
+        _showingSentenceAtTop = false;
         if (kindText != null) kindText.text = "";
         if (topicText != null) topicText.text = "";
         if (hintText != null) hintText.text = "";
