@@ -1034,7 +1034,8 @@ public class TopicPracticeManager : MonoBehaviour
 
         if (skipThinkButton != null)
         {
-            skipThinkButton.gameObject.SetActive(_state == State.Thinking);
+            // 考える時間はメインのボタンが「Start now」になるので、同じ働きのこのボタンは出さない (2 つ並ぶと紛らわしい)
+            skipThinkButton.gameObject.SetActive(false);
             skipThinkButton.interactable = !_busy;
         }
         if (retryButton != null)

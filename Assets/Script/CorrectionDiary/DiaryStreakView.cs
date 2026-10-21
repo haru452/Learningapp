@@ -58,10 +58,12 @@ public class DiaryStreakView : MonoBehaviour
     [SerializeField] private Color labelColor = new Color(0.65f, 0.70f, 0.75f, 1f);
     [SerializeField] private Color todayLabelColor = new Color(0.30f, 0.82f, 0.96f, 1f);
 
-    [Header("Day boundary")]
-    [Tooltip("1日の区切りの時刻。0 = 午前0時。例えば 4 にすると、午前4時までは前の日として数える")]
-    [Range(0, 12)]
-    [SerializeField] private int dayBoundaryHour = 0;
+    /// <summary>
+    /// 1日の区切りの時刻。夜中の 3:00 までは前の日として数える。
+    /// サーバー (Supabase の app_today・要約練習) と夜のリマインダー (DAY_START_HOUR) と同じ値にそろえるため、
+    /// Inspector では変えられないようにしている。変えるときは、それらも一緒に変えること。
+    /// </summary>
+    public const int DayBoundaryHour = 3;
 
     [Header("Cloud (任意。空欄ならこれまで通り端末内だけで動く)")]
     [SerializeField] private SupabaseService supabase;
@@ -81,7 +83,7 @@ public class DiaryStreakView : MonoBehaviour
     private int _cloudBest;
     private DateTime? _cloudLastDate;
 
-    private DateTime Today => DateTime.Now.AddHours(-dayBoundaryHour).Date;
+    private DateTime Today => DateTime.Now.AddHours(-DayBoundaryHour).Date;
 
     /// <summary>「今日」の日付 (Day Boundary Hour を考慮した、日記の記録上の日付)</summary>
     public DateTime TodayDate => Today;
@@ -139,6 +141,13 @@ public class DiaryStreakView : MonoBehaviour
     {
         bool added = MarkTodayDone();
 
+        // アプリ起動後、まだログインを復元していない場合もあるので、ここで復元してから送る
+        if (supabase != null && !supabase.IsSignedIn)
+        {
+            await supabase.EnsureSignedInAsync();
+            if (this == null) return added;
+        }
+
         if (CloudActive)
         {
             try
@@ -162,6 +171,12 @@ public class DiaryStreakView : MonoBehaviour
     /// <summary>ログイン中なら、クラウドの最新の値を取得して表示を更新する。</summary>
     public async Task RefreshFromCloudAsync()
     {
+        if (supabase != null && !supabase.IsSignedIn)
+        {
+            // 前回のログインを復元する (成功すると AuthChanged からもう一度ここが呼ばれる)
+            await supabase.EnsureSignedInAsync();
+            if (this == null) return;
+        }
         if (!CloudActive) return;
         try
         {

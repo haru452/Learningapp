@@ -29,13 +29,29 @@ public class AuthPanel : MonoBehaviour
     [Header("Status")]
     [Tooltip("エラーや案内を表示する文字 (任意)")]
     [SerializeField] private TMP_Text statusText;
+    [SerializeField] private Color statusInfoColor = new Color(0.78f, 0.77f, 0.85f, 1f);
+    [SerializeField] private Color statusErrorColor = new Color(1f, 0.71f, 0.67f, 1f);
+
+    [Header("Extras (任意。空欄なら使わない)")]
+    [Tooltip("パスワードの表示/非表示を切り替えるボタン (目のアイコン)")]
+    [SerializeField] private Button showPasswordButton;
+    [Tooltip("パスワードが隠れているときに出すアイコン")]
+    [SerializeField] private GameObject passwordHiddenIcon;
+    [Tooltip("パスワードが見えているときに出すアイコン")]
+    [SerializeField] private GameObject passwordVisibleIcon;
+    [Tooltip("Remember this device のチェック。オフだと、アプリを閉じるとログアウトになる")]
+    [SerializeField] private Toggle rememberToggle;
+    [Tooltip("パスワード再設定メールを送るボタン")]
+    [SerializeField] private Button forgotPasswordButton;
 
     private bool _busy;
+    private bool _passwordVisible;
 
     private void Awake()
     {
         if (passwordInput != null) passwordInput.contentType = TMP_InputField.ContentType.Password;
         if (emailInput != null) emailInput.contentType = TMP_InputField.ContentType.EmailAddress;
+        ApplyPasswordVisibility();
     }
 
     private void OnEnable()
@@ -46,6 +62,13 @@ public class AuthPanel : MonoBehaviour
         // Enter キー (スマホでは、キーボードの「完了/改行」) で、次へ進む / ログインする
         if (emailInput != null) emailInput.onSubmit.AddListener(OnEmailSubmit);
         if (passwordInput != null) passwordInput.onSubmit.AddListener(OnPasswordSubmit);
+        if (showPasswordButton != null) showPasswordButton.onClick.AddListener(OnTogglePassword);
+        if (forgotPasswordButton != null) forgotPasswordButton.onClick.AddListener(OnForgotPassword);
+        if (rememberToggle != null)
+        {
+            if (supabase != null) rememberToggle.SetIsOnWithoutNotify(supabase.RememberDevice);
+            rememberToggle.onValueChanged.AddListener(OnRememberChanged);
+        }
         if (supabase != null) supabase.AuthChanged += UpdateView;
         UpdateView();
     }
@@ -57,6 +80,9 @@ public class AuthPanel : MonoBehaviour
         if (signOutButton != null) signOutButton.onClick.RemoveListener(OnSignOut);
         if (emailInput != null) emailInput.onSubmit.RemoveListener(OnEmailSubmit);
         if (passwordInput != null) passwordInput.onSubmit.RemoveListener(OnPasswordSubmit);
+        if (showPasswordButton != null) showPasswordButton.onClick.RemoveListener(OnTogglePassword);
+        if (forgotPasswordButton != null) forgotPasswordButton.onClick.RemoveListener(OnForgotPassword);
+        if (rememberToggle != null) rememberToggle.onValueChanged.RemoveListener(OnRememberChanged);
         if (supabase != null) supabase.AuthChanged -= UpdateView;
     }
 
@@ -80,6 +106,9 @@ public class AuthPanel : MonoBehaviour
             accountText.text = signedIn ? "Signed in as " + supabase.Email : "";
 
         if (signedIn && passwordInput != null) passwordInput.text = "";
+        // 前回ログインしたメールアドレスを、最初から入れておく
+        if (!signedIn && supabase != null && emailInput != null && string.IsNullOrEmpty(emailInput.text))
+            emailInput.text = supabase.LastEmail;
 
         SetButtons(!_busy);
     }
@@ -89,12 +118,17 @@ public class AuthPanel : MonoBehaviour
         if (signInButton != null) signInButton.interactable = interactable;
         if (signUpButton != null) signUpButton.interactable = interactable;
         if (signOutButton != null) signOutButton.interactable = interactable;
+        if (forgotPasswordButton != null) forgotPasswordButton.interactable = interactable;
     }
 
-    private void SetStatus(string message)
+    private void SetStatus(string message, bool isError = false)
     {
-        if (statusText != null) statusText.text = message ?? "";
+        if (statusText == null) return;
+        statusText.text = message ?? "";
+        statusText.color = isError ? statusErrorColor : statusInfoColor;
     }
+
+    private void SetError(string message) => SetStatus(message, true);
 
     private bool ValidateInput(out string email, out string password)
     {
@@ -103,17 +137,17 @@ public class AuthPanel : MonoBehaviour
 
         if (supabase == null || !supabase.IsConfigured)
         {
-            SetStatus("Supabase is not set up yet.");
+            SetError("Supabase is not set up yet.");
             return false;
         }
         if (string.IsNullOrEmpty(email) || !email.Contains("@"))
         {
-            SetStatus("Please enter a valid email address.");
+            SetError("Please enter a valid email address.");
             return false;
         }
         if (password.Length < 6)
         {
-            SetStatus("Password must be at least 6 characters.");
+            SetError("Password must be at least 6 characters.");
             return false;
         }
         return true;
@@ -140,7 +174,7 @@ public class AuthPanel : MonoBehaviour
             await supabase.SignInAsync(email, password);
             SetStatus("");
         }
-        catch (Exception e) { SetStatus(e.Message); }
+        catch (Exception e) { SetError(e.Message); }
         finally { _busy = false; if (this != null) UpdateView(); }
     }
 
@@ -155,7 +189,55 @@ public class AuthPanel : MonoBehaviour
                 ? "Almost done! We sent a confirmation email. Open the link, then sign in."
                 : "Account created. You are signed in.");
         }
-        catch (Exception e) { SetStatus(e.Message); }
+        catch (Exception e) { SetError(e.Message); }
+        finally { _busy = false; if (this != null) UpdateView(); }
+    }
+
+    // ------------------------------------------------------------
+    // Extras
+    private void OnTogglePassword()
+    {
+        _passwordVisible = !_passwordVisible;
+        ApplyPasswordVisibility();
+    }
+
+    private void ApplyPasswordVisibility()
+    {
+        if (passwordInput != null)
+        {
+            passwordInput.contentType = _passwordVisible
+                ? TMP_InputField.ContentType.Standard
+                : TMP_InputField.ContentType.Password;
+            passwordInput.ForceLabelUpdate();
+        }
+        if (passwordHiddenIcon != null) passwordHiddenIcon.SetActive(!_passwordVisible);
+        if (passwordVisibleIcon != null) passwordVisibleIcon.SetActive(_passwordVisible);
+    }
+
+    private void OnRememberChanged(bool on)
+    {
+        if (supabase != null) supabase.RememberDevice = on;
+    }
+
+    private async void OnForgotPassword()
+    {
+        if (_busy) return;
+        string email = emailInput != null ? emailInput.text.Trim() : "";
+        if (supabase == null || !supabase.IsConfigured) { SetError("Supabase is not set up yet."); return; }
+        if (string.IsNullOrEmpty(email) || !email.Contains("@"))
+        {
+            SetError("Enter your email above, then tap \"Forgot password?\" again.");
+            if (emailInput != null) emailInput.ActivateInputField();
+            return;
+        }
+
+        _busy = true; SetButtons(false); SetStatus("Sending a reset link...");
+        try
+        {
+            await supabase.SendPasswordResetAsync(email);
+            SetStatus("If an account exists for " + email + ", we sent a link to reset the password. Open it, set a new password, then sign in here.");
+        }
+        catch (Exception e) { SetError(e.Message); }
         finally { _busy = false; if (this != null) UpdateView(); }
     }
 
@@ -164,7 +246,7 @@ public class AuthPanel : MonoBehaviour
         if (_busy) return;
         _busy = true; SetButtons(false);
         try { await supabase.SignOutAsync(); SetStatus("Signed out."); }
-        catch (Exception e) { SetStatus(e.Message); }
+        catch (Exception e) { SetError(e.Message); }
         finally { _busy = false; if (this != null) UpdateView(); }
     }
 }
