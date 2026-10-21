@@ -4,6 +4,8 @@
 // 最後に "ALL LOGIC TESTS PASSED" と出れば成功 (失敗すると終了コード 1)。
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
 
 public static class LogicTests
 {
@@ -22,6 +24,8 @@ public static class LogicTests
     {
         MistakeTypeTests();
         ReadAloudTests();
+        SchemaTests();
+        TopicCatalogTests();
 
         if (_failed > 0)
         {
@@ -67,5 +71,55 @@ public static class LogicTests
         Check(ReadAloudMatcher.Match("Hi there.", null).AccuracyPercent == 0, "null heard -> 0");
         var empty = ReadAloudMatcher.Match("", "anything");
         Check(empty.Words.Count == 0 && empty.AccuracyPercent == 0, "empty expected");
+    }
+
+    // Gemini に渡す JSON スキーマが正しい JSON で、決めた形になっていること
+    private static void SchemaTests()
+    {
+        var schemas = new (string name, string json)[]
+        {
+            ("diary", GeminiApiClient.DiarySchema),
+            ("summary", GeminiApiClient.SummaryGradeSchema),
+            ("topicGrade", GeminiApiClient.TopicGradeSchema),
+            ("topicPrompt", GeminiApiClient.TopicPromptSchema),
+            ("pronunciation", GeminiApiClient.PronunciationSchema),
+        };
+        foreach (var (name, json) in schemas)
+        {
+            try { JsonDocument.Parse(json); }
+            catch (Exception e) { Check(false, name + " schema is not valid JSON: " + e.Message); }
+        }
+
+        var grade = JsonDocument.Parse(GeminiApiClient.TopicGradeSchema).RootElement;
+        var props = grade.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
+        Check(props.Take(5).SequenceEqual(new[] { "goodPoints", "fixPoints", "contentScore", "organizationScore", "languageScore" }),
+            "topic grade: reasons come before scores");
+        var order = grade.GetProperty("propertyOrdering").EnumerateArray().Select(e => e.GetString()).ToList();
+        Check(order.SequenceEqual(props), "topic grade: propertyOrdering matches properties");
+
+        foreach (var (name, json) in new[] { ("diary", GeminiApiClient.DiarySchema), ("summary", GeminiApiClient.SummaryGradeSchema), ("topicGrade", GeminiApiClient.TopicGradeSchema) })
+        {
+            var root = JsonDocument.Parse(json).RootElement;
+            bool has = root.GetProperty("properties").TryGetProperty("mistakes", out var m);
+            Check(has, name + ": has mistakes");
+            if (!has) continue;
+            var types = m.GetProperty("items").GetProperty("properties").GetProperty("type").GetProperty("enum")
+                .EnumerateArray().Select(e => e.GetString()).ToArray();
+            Check(types.SequenceEqual(MistakeTypes.All), name + ": mistake type enum matches MistakeTypes.All");
+        }
+
+        var prompt = JsonDocument.Parse(GeminiApiClient.TopicPromptSchema).RootElement.GetProperty("properties");
+        Check(prompt.TryGetProperty("kind", out _) && prompt.TryGetProperty("topic", out _) && prompt.TryGetProperty("hint", out _),
+            "topic prompt: kind/topic/hint");
+        Check(GeminiApiClient.TopicContentMax + GeminiApiClient.TopicOrganizationMax + GeminiApiClient.TopicLanguageMax == 100
+              && GeminiApiClient.TopicContentMax == 40, "topic score split 40/30/30");
+    }
+
+    private static void TopicCatalogTests()
+    {
+        Check(TopicCatalog.SecondsFor("daily") == 45, "daily 45s");
+        Check(TopicCatalog.SecondsFor("exam") == 60, "exam 60s");
+        Check(TopicCatalog.SecondsFor("work") == 60, "work 60s");
+        Check(TopicCatalog.SecondsFor("??") == 60, "unknown 60s");
     }
 }
