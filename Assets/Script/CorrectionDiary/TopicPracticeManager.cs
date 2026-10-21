@@ -522,7 +522,7 @@ public class TopicPracticeManager : MonoBehaviour
         _busy = true;
         SetState(State.Grading);
         SetLoading(true);
-        SetStatus("Grading your answer...");
+        SetStatus(wav != null ? "Listening to your answer and grading it... (this can take up to a minute)" : "Grading your answer...");
         if (retryButton != null) retryButton.gameObject.SetActive(false);
 
         try

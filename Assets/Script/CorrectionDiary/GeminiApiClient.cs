@@ -503,7 +503,7 @@ public class GeminiApiClient
         string innerJson = wav == null
             ? await GeneratePartsAsync(TextPart(prompt + spokenText), TopicGradeSchema, "\"temperature\":0.2")
             : await GeneratePartsAsync(TextPart(prompt + "(attached audio)\n\n" + TopicGradeAudioNote) + "," + AudioPart(wav),
-                                       TopicGradeAudioSchema, "\"temperature\":0.2");
+                                       TopicGradeAudioSchema, "\"temperature\":0.2", AudioGradeTimeoutSeconds);
         var result = JsonUtility.FromJson<TopicGrade>(innerJson);
         if (result == null) throw new Exception("Could not parse Gemini response: " + innerJson);
         result.transcript = wav == null ? (spokenText ?? "").Trim() : (result.transcript ?? "").Trim();
@@ -545,6 +545,11 @@ public class GeminiApiClient
     // ------------------------------------------------------------
     private const int MaxAttemptsPerModel = 3;
 
+    /// <summary>ふつうのリクエストを待つ時間 (秒)</summary>
+    public const int DefaultTimeoutSeconds = 90;
+    /// <summary>答えの録音を採点するときに待つ時間 (秒)。録音を聞いて書き起こし、採点まで 1 回でするので長めに</summary>
+    public const int AudioGradeTimeoutSeconds = 180;
+
     /// <summary>要約の採点で、動画を何秒に1コマ読むか (0.5 = 2秒に1コマ)</summary>
     private const float VideoFps = 0.5f;
 
@@ -561,7 +566,7 @@ public class GeminiApiClient
     /// 一時的なエラー (500/503) は待ってリトライ (1秒→2秒) し、それでも失敗したら予備モデルに切り替える。
     /// 利用上限 (429) やモデル名の間違い (404) のときは、リトライせずにすぐ予備モデルに切り替える。
     /// </summary>
-    private async Task<string> PostWithRetryAsync(string body)
+    private async Task<string> PostWithRetryAsync(string body, int timeoutSeconds = DefaultTimeoutSeconds)
     {
         var keys = UsableKeys;
         var order = AttemptOrder(keys.ToArray(), new[] { _model, _fallbackModel });
@@ -578,7 +583,7 @@ public class GeminiApiClient
                 try
                 {
                     return await HttpUtil.PostJsonAsync(
-                        url, body, new[] { ("x-goog-api-key", apiKey) }, timeoutSeconds: 90);
+                        url, body, new[] { ("x-goog-api-key", apiKey) }, timeoutSeconds: timeoutSeconds);
                 }
                 catch (HttpException e) when (ShouldSwitchModel(e))
                 {
@@ -623,7 +628,8 @@ public class GeminiApiClient
 
     /// <param name="partsJson">parts 配列の中身 (カンマ区切りの JSON オブジェクト)</param>
     /// <param name="extraConfig">generationConfig に足す設定 (例: "\"temperature\":0.2")。無ければ null</param>
-    private async Task<string> GeneratePartsAsync(string partsJson, string schemaJson, string extraConfig = null)
+    private async Task<string> GeneratePartsAsync(string partsJson, string schemaJson, string extraConfig = null,
+                                                  int timeoutSeconds = DefaultTimeoutSeconds)
     {
         if (UsableKeys.Count == 0)
             throw new InvalidOperationException("Gemini API key is not set.");
@@ -639,7 +645,7 @@ public class GeminiApiClient
                 (string.IsNullOrEmpty(extraConfig) ? "" : "," + extraConfig) +
             "}}";
 
-        string response = await PostWithRetryAsync(body);
+        string response = await PostWithRetryAsync(body, timeoutSeconds);
 
         var parsed = JsonUtility.FromJson<GeminiResponse>(response);
         string text = parsed?.candidates?.Length > 0

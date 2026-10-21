@@ -103,6 +103,10 @@ public static class LogicTests
         var sameKey = GeminiApiClient.AttemptOrder(new[] { "k1", "k1" }, new[] { "main", null });
         Check(Show(sameKey) == "0:main", "same key twice and empty fallback model are skipped " + Show(sameKey));
 
+        // 録音の採点は、聞く・書き起こす・採点するので時間がかかる (90 秒では足りないことがある)
+        Check(GeminiApiClient.AudioGradeTimeoutSeconds >= 180, "audio grading waits at least 180 s");
+        Check(GeminiApiClient.DefaultTimeoutSeconds == 90, "other requests keep 90 s");
+
         var none = GeminiApiClient.AttemptOrder(new[] { "", null }, new[] { "main" });
         Check(none.Count == 0, "no keys -> no attempts");
     }
