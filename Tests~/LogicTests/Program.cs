@@ -26,6 +26,7 @@ public static class LogicTests
         ReadAloudTests();
         SchemaTests();
         AttemptOrderTests();
+        TabBadgeTests();
         TopicCatalogTests();
         MistakesJsonTests();
 
@@ -81,6 +82,19 @@ public static class LogicTests
         Check(r.AccuracyPercent == 100, $"em dash splits words ({r.AccuracyPercent})");
         r = ReadAloudMatcher.Match("Wait - what?", "wait what");
         Check(r.AccuracyPercent == 100 && r.Words.Count == 2, $"lone dash is not a word ({r.AccuracyPercent}, {r.Words.Count})");
+    }
+
+    // ほかの画面にいる間に採点が終わったら、タブの名前に印を付ける (開いたら消す)
+    private static void TabBadgeTests()
+    {
+        Check(TabBadge.Add("Topic") == "Topic ●", "badge added: " + TabBadge.Add("Topic"));
+        Check(TabBadge.Add(TabBadge.Add("Topic")) == "Topic ●", "badge is not added twice");
+        Check(TabBadge.Remove(TabBadge.Add("Topic")) == "Topic", "badge removed");
+        Check(TabBadge.Remove("Topic") == "Topic", "remove without badge keeps the label");
+        Check(TabBadge.Has("Topic ●") && !TabBadge.Has("Topic"), "has badge");
+        Check(TabBadge.Add(null) == "\u25CF", "null label: " + TabBadge.Add(null));
+        Check(TabBadge.Message(72) == "Topic: graded — 72 / 100", "toast with score: " + TabBadge.Message(72));
+        Check(TabBadge.Message(null) == "Topic: grading failed — open Topic and tap Retry", "toast on error: " + TabBadge.Message(null));
     }
 
     // API キーが 2 つあるとき: 自分のキーで (メイン → 予備モデル)、上限なら もう片方のキーで (メイン → 予備モデル)

@@ -65,6 +65,8 @@ public class TopicPracticeManager : MonoBehaviour
     [Tooltip("点数・良かった点・直す点・添削・言い換え・表現・苦手のチェック (リッチテキスト)")]
     [SerializeField] private TMP_Text resultText;
     [SerializeField] private GameObject loadingIndicator;
+    [Tooltip("Topic タブの文字。空なら「Topic」という名前のボタンから探す。ほかの画面にいる間に採点が終わったら ● を付ける")]
+    [SerializeField] private TMP_Text tabLabel;
 
     [Header("Read aloud (言い直し)")]
     [SerializeField] private GameObject readAloudGroup;
@@ -183,6 +185,59 @@ public class TopicPracticeManager : MonoBehaviour
     }
 
     // 画面が非表示にされたら、考える時間・話している途中・言い直しの途中なら中断する (採点中はそのまま完了させる)
+    // この画面を開いたら、タブの「採点が終わった」印を消す
+    private void OnEnable()
+    {
+        var label = FindTabLabel();
+        if (label != null && TabBadge.Has(label.text)) label.text = TabBadge.Remove(label.text);
+    }
+
+    private TMP_Text FindTabLabel()
+    {
+        if (tabLabel != null) return tabLabel;
+        var tab = FindObjectsOfType<Button>(true)
+            .FirstOrDefault(b => b.name == "Topic" && b.gameObject.scene == gameObject.scene);
+        tabLabel = tab != null ? tab.GetComponentInChildren<TMP_Text>(true) : null;
+        return tabLabel;
+    }
+
+    /// <summary>
+    /// 採点を待っている間にほかの画面 (日記・要約練習など) へ移っていたら、終わったことを知らせる:
+    /// Topic タブに ● を付け、Android ではトーストも出す。score が null なら失敗したとき
+    /// </summary>
+    private void NotifyIfHidden(int? score)
+    {
+        if (this == null || gameObject.activeInHierarchy) return;
+        var label = FindTabLabel();
+        if (label != null) label.text = TabBadge.Add(label.text);
+        ShowToast(TabBadge.Message(score));
+    }
+
+    private static void ShowToast(string message)
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            {
+                var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+                activity.Call("runOnUiThread", new AndroidJavaRunnable(() =>
+                {
+                    using (var toast = new AndroidJavaClass("android.widget.Toast"))
+                    using (var t = toast.CallStatic<AndroidJavaObject>("makeText", activity, message, 1))   // 1 = LENGTH_LONG
+                        t.Call("show");
+                }));
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[TopicPractice] could not show a toast: " + e.Message);
+        }
+#else
+        Debug.Log("[TopicPractice] " + message);
+#endif
+    }
+
     private void OnDisable()
     {
         if (_state == State.Thinking || (_state == State.Speaking && !_finishing))
@@ -561,6 +616,7 @@ public class TopicPracticeManager : MonoBehaviour
             SetStatus(discordError == null
                 ? "Done! Read the corrected sentences aloud, or tap \"New Topic\"."
                 : "Graded, but Discord failed: " + discordError);
+            NotifyIfHidden(grade.score);
         }
         catch (Exception e)
         {
@@ -569,6 +625,7 @@ public class TopicPracticeManager : MonoBehaviour
             else _retryText = text;
             SetState(State.Idle);
             SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to grade the same answer again)");
+            NotifyIfHidden(null);
         }
         finally
         {
