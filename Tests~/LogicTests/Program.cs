@@ -122,6 +122,22 @@ public static class LogicTests
         Check(TopicCatalog.SecondsFor("exam") == 60, "exam 60s");
         Check(TopicCatalog.SecondsFor("work") == 60, "work 60s");
         Check(TopicCatalog.SecondsFor("??") == 60, "unknown 60s");
+
+        var rng = new Random(7);
+        var recent = new List<string>();
+        for (int i = 0; i < 5; i++) recent.Add(TopicCatalog.Offline("work", rng, null).topic);
+        bool ok = true;
+        for (int i = 0; i < 200; i++)
+        {
+            var t = TopicCatalog.Offline("work", rng, recent);
+            if (t.kind != "work" || string.IsNullOrWhiteSpace(t.topic) || recent.Contains(t.topic) || string.IsNullOrWhiteSpace(t.hint)) ok = false;
+        }
+        Check(ok, "offline topic: right kind, not recent, has hint");
+        foreach (string kind in TopicCatalog.Kinds)
+            Check(TopicCatalog.CountFor(kind) >= 20, "at least 20 offline topics for " + kind);
+        var kinds = new HashSet<string>();
+        for (int i = 0; i < 100; i++) kinds.Add(TopicCatalog.RandomKind(rng));
+        Check(kinds.SetEquals(TopicCatalog.Kinds), "random kind covers all kinds");
     }
 
     // クラウドに送るミスの JSON (jsonb としてそのまま RPC の本文に入れる)

@@ -112,6 +112,40 @@ public class DiscordClient
         }
     }
 
+    /// <summary>お題スピーキングの結果を送信する (要約練習と同じチャンネル)。</summary>
+    public async Task SendTopicResultAsync(DateTime date, string kind, string topic, GeminiApiClient.TopicGrade g)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("Discord is not configured.");
+
+        string breakdown =
+            "```\n" +
+            ScoreBar("Content", g.contentScore, GeminiApiClient.TopicContentMax) +
+            ScoreBar("Organization", g.organizationScore, GeminiApiClient.TopicOrganizationMax) +
+            ScoreBar("Grammar/Vocab", g.languageScore, GeminiApiClient.TopicLanguageMax) +
+            "```\n";
+
+        string phrases = g.phrases != null && g.phrases.Length > 0 ? "- " + string.Join("\n- ", g.phrases) : "";
+        string full =
+            "\U0001F5E3 **Topic Speaking (" + kind + ") - " + date.ToString("yyyy-MM-dd HH:mm") + "**\n" +
+            "Topic: " + topic + "\n" +
+            "Score: **" + g.score + " / 100**\n" +
+            breakdown + "\n" +
+            Section("Good points", g.goodPoints) +
+            Section("To improve", g.fixPoints) +
+            Section("Corrected", g.corrected) +
+            Section("More natural", g.natural) +
+            Section("Useful phrases", phrases);
+
+        List<string> chunks = Split(full, MaxMessageLength);
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            await PostAsync(chunks[i]);
+            if (i < chunks.Count - 1)
+                await Task.Delay(500);   // レート制限対策
+        }
+    }
+
     // ------------------------------------------------------------
     // Internal
     // ------------------------------------------------------------
