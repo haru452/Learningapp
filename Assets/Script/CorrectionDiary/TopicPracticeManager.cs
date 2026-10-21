@@ -35,8 +35,9 @@ public class TopicPracticeManager : MonoBehaviour
     [Header("Practice")]
     [Tooltip("考える時間 (秒)。「Start now」で早めに話し始められる")]
     [SerializeField] private int thinkSeconds = 60;
-    [Tooltip("話した答えは録音して Gemini で文字起こしする (正確。途中の文字は出ない)。オフにすると端末の音声認識 (途中の文字が出るが、区切りで言葉が抜けやすい)")]
-    [SerializeField] private bool transcribeAnswerWithGemini = true;
+    [Tooltip("答えは録音し、採点のときに Gemini が録音を聞いて文字起こしもする (採点と同じ 1 回の通信なので Gemini の使用回数は増えない。言葉が抜けない。話している途中の文字は出ない)。" +
+             "オフにすると端末の音声認識 (途中の文字が出るが、数秒黙ると区切られて言葉が抜けやすい)")]
+    [SerializeField] private bool recordAnswerForGrading = true;
     [SerializeField] private string speechLanguage = "en-US";
 
     [Header("Discord (要約練習と同じチャンネル。空なら ApiSecrets.json の値)")]
@@ -113,8 +114,7 @@ public class TopicPracticeManager : MonoBehaviour
 
     // 採点・文字起こしに失敗したときの再試行用
     private string _retryText;
-    private byte[] _retryWav;        // 録音モードで文字起こしに失敗したときの録音 (答えを失わないように)
-    private byte[] _transcribingWav;
+    private byte[] _retryWav;        // 録音を採点するときに失敗したら、録音を取っておいて Retry で送り直す
 
     // 採点結果 1 回分の保存先。言い直しの一致率は、その結果に入れる (次のお題の結果に入らないように)
     private class SaveTicket
@@ -255,46 +255,9 @@ public class TopicPracticeManager : MonoBehaviour
     private async void OnRetryClicked()
     {
         if (_busy || _state != State.Idle) return;
-        if (_retryWav != null) { await RetryTranscriptionAsync(); return; }
+        if (_retryWav != null) { await GradeAsync(null, _retryWav); return; }
         if (string.IsNullOrEmpty(_retryText)) return;
         await GradeAsync(_retryText);
-    }
-
-    // 録音モードで文字起こしに失敗した答えを、もう一度文字起こしして採点する
-    private async Task RetryTranscriptionAsync()
-    {
-        byte[] wav = _retryWav;
-        _busy = true;
-        SetLoading(true);
-        SetStatus("Transcribing...");
-        RefreshButtons();
-        string text;
-        try
-        {
-            text = ((await _gemini.TranscribeAsync(wav)) ?? "").Trim();
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-            if (this == null) return;
-            SetLoading(false);
-            _busy = false;
-            SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to try again)");
-            RefreshButtons();
-            return;
-        }
-        if (this == null) return;
-        _retryWav = null;
-        SetLoading(false);
-        _busy = false;
-        if (transcriptText != null) transcriptText.text = text;
-        if (CountWords(text) < 2)
-        {
-            SetStatus("Please speak a little more. Tap \"New Topic\" to try again.");
-            RefreshButtons();
-            return;
-        }
-        await GradeAsync(text);
     }
 
     // ------------------------------------------------------------
@@ -368,7 +331,7 @@ public class TopicPracticeManager : MonoBehaviour
             if (!await StartListeningAsync(forAnswer: true)) { SetState(State.Idle); return; }
             _endTime = Time.realtimeSinceStartup + TopicCatalog.SecondsFor(_topic.kind);
             SetState(State.Speaking);
-            SetStatus(_useNative ? "Speak now!" : "Speak now! Your answer is recorded and written out when you finish.");
+            SetStatus(_useNative ? "Speak now!" : "Speak now! Your answer is recorded and written out after grading.");
         }
         finally
         {
@@ -379,13 +342,13 @@ public class TopicPracticeManager : MonoBehaviour
 
     /// <summary>
     /// 聞き取りを始める。始められたら true。
-    /// 答え (forAnswer) は録音して Gemini で文字起こしする: 端末の音声認識は数秒の無音で切れ、
+    /// 答え (forAnswer) は録音して、採点のときに Gemini に聞いてもらう: 端末の音声認識は数秒の無音で切れ、
     /// 再開するまでの間の言葉が抜けるため、長く話すと文が欠けて点数が下がる。
     /// 言い直し (1 文) は端末の音声認識ですぐ結果を出す。使えなければどちらも録音。
     /// </summary>
     private async Task<bool> StartListeningAsync(bool forAnswer = false)
     {
-        _useNative = nativeStt.IsAvailable && !(forAnswer && transcribeAnswerWithGemini);
+        _useNative = nativeStt.IsAvailable && !(forAnswer && recordAnswerForGrading);
         if (!await recorder.RequestPermissionAsync())
         {
             SetStatus("Microphone permission denied. Please allow it in Settings.");
@@ -491,10 +454,7 @@ public class TopicPracticeManager : MonoBehaviour
         byte[] wav = recorder.IsRecording ? recorder.StopRecording() : null;
         if (wav == null) return "";
         SetStatus("Transcribing...");
-        _transcribingWav = wav;   // 失敗したときに答えを失わないように取っておく
-        string text = ((await _gemini.TranscribeAsync(wav)) ?? "").Trim();
-        _transcribingWav = null;
-        return text;
+        return ((await _gemini.TranscribeAsync(wav)) ?? "").Trim();
     }
 
     // ------------------------------------------------------------
@@ -510,6 +470,24 @@ public class TopicPracticeManager : MonoBehaviour
         SetStatus("Finishing...");
         RefreshButtons();
 
+        // 録音した答えは、文字起こしせずにそのまま採点に送る (Gemini が聞いて文字起こしもする)
+        if (!_useNative)
+        {
+            _listening = false;
+            Screen.sleepTimeout = SleepTimeout.SystemSetting;
+            byte[] wav = recorder.IsRecording ? recorder.StopRecording() : null;
+            _busy = false;
+            if (wav == null || wav.Length == 0)
+            {
+                SetLoading(false);
+                SetState(State.Idle);
+                SetStatus("Could not record your answer. Tap \"New Topic\" to try again.");
+                return;
+            }
+            await GradeAsync(null, wav);
+            return;
+        }
+
         string text;
         try
         {
@@ -518,18 +496,6 @@ public class TopicPracticeManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogException(e);
-            if (this == null) return;
-            if (_transcribingWav != null)
-            {
-                // 文字起こしだけ失敗した: 録音は残して、Retry でもう一度文字起こしできるようにする
-                _retryWav = _transcribingWav;
-                _transcribingWav = null;
-                _busy = false;
-                SetLoading(false);
-                SetState(State.Idle);
-                SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to transcribe your answer again)");
-                return;
-            }
             text = "";
         }
         if (this == null) return;
@@ -547,7 +513,8 @@ public class TopicPracticeManager : MonoBehaviour
         await GradeAsync(text);
     }
 
-    private async Task GradeAsync(string text)
+    /// <summary>答えを採点する。wav があれば録音を送り、文字起こしも Gemini に任せる (text は使わない)</summary>
+    private async Task GradeAsync(string text, byte[] wav = null)
     {
         _busy = true;
         SetState(State.Grading);
@@ -558,9 +525,24 @@ public class TopicPracticeManager : MonoBehaviour
         try
         {
             int seconds = TopicCatalog.SecondsFor(_topic.kind);
-            var grade = await _gemini.GradeTopicAsync(_topic.kind, _topic.topic, seconds, text, _focusTypes);
+            var grade = wav != null
+                ? await _gemini.GradeTopicAudioAsync(_topic.kind, _topic.topic, seconds, wav, _focusTypes)
+                : await _gemini.GradeTopicAsync(_topic.kind, _topic.topic, seconds, text, _focusTypes);
             if (this == null) return;
             _retryText = null;
+            _retryWav = null;
+
+            if (wav != null)
+            {
+                text = grade.transcript;
+                if (transcriptText != null) transcriptText.text = text;
+                if (CountWords(text) < 2)
+                {
+                    SetState(State.Idle);
+                    SetStatus("Please speak a little more. Tap \"New Topic\" to try again.");
+                    return;
+                }
+            }
 
             var counts = MistakeTypes.Count(grade.mistakes);
             ShowGrade(grade, text, counts);
@@ -580,7 +562,8 @@ public class TopicPracticeManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogException(e);
-            _retryText = text;
+            if (wav != null) _retryWav = wav;   // 録音は残しておく (答えを失わないように)
+            else _retryText = text;
             SetState(State.Idle);
             SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to grade the same answer again)");
         }
@@ -684,7 +667,6 @@ public class TopicPracticeManager : MonoBehaviour
         {
             _finishing = false;
             _reading = false;
-            _transcribingWav = null;
         }
         if (this == null || ReadAloudFinished) return;
 

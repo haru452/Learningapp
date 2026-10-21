@@ -315,6 +315,7 @@ public class GeminiApiClient
         public string[] phrases;         // 次に使える表現 (3つ)
         public Mistake[] mistakes;       // 文法・語の使い方のミス
         public string[] readAloud;       // 言い直し用: 直しが入った文 (最大3)
+        public string transcript;        // 録音を直接採点したとき: 聞いたままの文字起こし
     }
 
     [Serializable]
@@ -373,8 +374,7 @@ public class GeminiApiClient
     private const string WeakPointsNote =
         "This learner often makes these kinds of mistakes: {0}. Check for them carefully and do not miss any.\n";
 
-    public const string TopicGradeSchema =
-        "{\"type\":\"OBJECT\",\"properties\":{" +
+    private const string TopicGradeProperties =
         "\"goodPoints\":{\"type\":\"STRING\"}," +
         "\"fixPoints\":{\"type\":\"STRING\"}," +
         "\"contentScore\":{\"type\":\"INTEGER\"}," +
@@ -384,11 +384,28 @@ public class GeminiApiClient
         "\"natural\":{\"type\":\"STRING\"}," +
         "\"phrases\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}," +
         MistakesProperty + "," +
-        "\"readAloud\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}}," +
-        "\"propertyOrdering\":[\"goodPoints\",\"fixPoints\",\"contentScore\",\"organizationScore\",\"languageScore\"," +
-        "\"corrected\",\"natural\",\"phrases\",\"mistakes\",\"readAloud\"]," +
-        "\"required\":[\"goodPoints\",\"fixPoints\",\"contentScore\",\"organizationScore\",\"languageScore\"," +
-        "\"corrected\",\"natural\",\"phrases\",\"mistakes\",\"readAloud\"]}";
+        "\"readAloud\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}";
+
+    private const string TopicGradeFields =
+        "\"goodPoints\",\"fixPoints\",\"contentScore\",\"organizationScore\",\"languageScore\"," +
+        "\"corrected\",\"natural\",\"phrases\",\"mistakes\",\"readAloud\"";
+
+    public const string TopicGradeSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{" + TopicGradeProperties + "}," +
+        "\"propertyOrdering\":[" + TopicGradeFields + "]," +
+        "\"required\":[" + TopicGradeFields + "]}";
+
+    /// <summary>録音をそのまま採点するとき: 最初に聞いたままの transcript を書かせる (文字起こしと採点を 1 回の通信で)</summary>
+    public const string TopicGradeAudioSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{\"transcript\":{\"type\":\"STRING\"}," + TopicGradeProperties + "}," +
+        "\"propertyOrdering\":[\"transcript\"," + TopicGradeFields + "]," +
+        "\"required\":[\"transcript\"," + TopicGradeFields + "]}";
+
+    private const string TopicGradeAudioNote =
+        "The learner's answer is the attached audio (it is not written below). First write \"transcript\": " +
+        "exactly what they said, word for word, keeping every grammar mistake (do not correct anything; leave out " +
+        "only fillers like \"um\"). If you cannot hear any English, write an empty string. " +
+        "Then grade that transcript as described above.";
 
     private const string PronunciationPrompt =
         "The attached audio is an English learner reading this sentence aloud:\n\"{0}\"\n" +
@@ -425,7 +442,21 @@ public class GeminiApiClient
     }
 
     /// <summary>お題への答え (音声認識の結果) を採点・添削する。weakTypes: 苦手なミスの種類 (重点的に見る)</summary>
-    public async Task<TopicGrade> GradeTopicAsync(string kind, string topic, int seconds, string spokenText, IList<string> weakTypes)
+    public Task<TopicGrade> GradeTopicAsync(string kind, string topic, int seconds, string spokenText, IList<string> weakTypes) =>
+        GradeTopicCoreAsync(kind, topic, seconds, spokenText, null, weakTypes);
+
+    /// <summary>
+    /// 答えの録音をそのまま採点する。文字起こしも同じ 1 回の通信で行い、結果の transcript に入れる
+    /// (文字起こしと採点を別々に頼むより、Gemini の使用回数が 1 回少ない)
+    /// </summary>
+    public Task<TopicGrade> GradeTopicAudioAsync(string kind, string topic, int seconds, byte[] wav, IList<string> weakTypes)
+    {
+        if (wav == null || wav.Length == 0) throw new ArgumentException("No recording.", nameof(wav));
+        return GradeTopicCoreAsync(kind, topic, seconds, null, wav, weakTypes);
+    }
+
+    private async Task<TopicGrade> GradeTopicCoreAsync(string kind, string topic, int seconds, string spokenText, byte[] wav,
+                                                       IList<string> weakTypes)
     {
         string weak = weakTypes != null && weakTypes.Count > 0
             ? WeakPointsNote.Replace("{0}", string.Join(", ", weakTypes))
@@ -440,9 +471,13 @@ public class GeminiApiClient
             .Replace("{11}", (TopicOrganizationMax - 6).ToString()).Replace("{12}", (TopicOrganizationMax / 2).ToString())
             .Replace("{13}", (TopicOrganizationMax / 2 - 1).ToString());
 
-        string innerJson = await GeneratePartsAsync(TextPart(prompt + spokenText), TopicGradeSchema, "\"temperature\":0.2");
+        string innerJson = wav == null
+            ? await GeneratePartsAsync(TextPart(prompt + spokenText), TopicGradeSchema, "\"temperature\":0.2")
+            : await GeneratePartsAsync(TextPart(prompt + "(attached audio)\n\n" + TopicGradeAudioNote) + "," + AudioPart(wav),
+                                       TopicGradeAudioSchema, "\"temperature\":0.2");
         var result = JsonUtility.FromJson<TopicGrade>(innerJson);
         if (result == null) throw new Exception("Could not parse Gemini response: " + innerJson);
+        result.transcript = wav == null ? (spokenText ?? "").Trim() : (result.transcript ?? "").Trim();
 
         result.contentScore = Mathf.Clamp(result.contentScore, 0, TopicContentMax);
         result.organizationScore = Mathf.Clamp(result.organizationScore, 0, TopicOrganizationMax);

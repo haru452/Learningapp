@@ -117,6 +117,17 @@ public static class LogicTests
             Check(types.SequenceEqual(MistakeTypes.All), name + ": mistake type enum matches MistakeTypes.All");
         }
 
+        // 録音を直接採点するとき: 最初に transcript (聞いたまま) を書き、そのあとは文字の採点と同じ
+        var audio = JsonDocument.Parse(GeminiApiClient.TopicGradeAudioSchema).RootElement;
+        var audioProps = audio.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
+        var audioOrder = audio.GetProperty("propertyOrdering").EnumerateArray().Select(e => e.GetString()).ToList();
+        var audioRequired = audio.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToList();
+        Check(audioOrder.FirstOrDefault() == "transcript", "topic grade (audio): transcript comes first");
+        Check(audioOrder.Skip(1).SequenceEqual(order), "topic grade (audio): the rest matches the text schema");
+        Check(audioOrder.SequenceEqual(audioProps) && audioRequired.Contains("transcript"), "topic grade (audio): ordering/required");
+        Check(audio.GetProperty("properties").GetProperty("mistakes").ToString() == grade.GetProperty("properties").GetProperty("mistakes").ToString(),
+            "topic grade (audio): same mistakes property");
+
         var prompt = JsonDocument.Parse(GeminiApiClient.TopicPromptSchema).RootElement.GetProperty("properties");
         Check(prompt.TryGetProperty("kind", out _) && prompt.TryGetProperty("topic", out _) && prompt.TryGetProperty("hint", out _),
             "topic prompt: kind/topic/hint");
