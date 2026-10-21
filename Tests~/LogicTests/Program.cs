@@ -26,6 +26,7 @@ public static class LogicTests
         ReadAloudTests();
         SchemaTests();
         TopicCatalogTests();
+        MistakesJsonTests();
 
         if (_failed > 0)
         {
@@ -121,5 +122,22 @@ public static class LogicTests
         Check(TopicCatalog.SecondsFor("exam") == 60, "exam 60s");
         Check(TopicCatalog.SecondsFor("work") == 60, "work 60s");
         Check(TopicCatalog.SecondsFor("??") == 60, "unknown 60s");
+    }
+
+    // クラウドに送るミスの JSON (jsonb としてそのまま RPC の本文に入れる)
+    private static void MistakesJsonTests()
+    {
+        var one = new[] { new Mistake { type = "tense", wrong = "I go", @fixed = "I went" } };
+        Check(MistakeTypes.ToJsonArray(one) == "[{\"type\":\"tense\",\"wrong\":\"I go\",\"fixed\":\"I went\"}]", "one mistake json");
+        Check(MistakeTypes.ToJsonArray(null) == "[]", "null -> []");
+        Check(MistakeTypes.ToJsonArray(new Mistake[0]) == "[]", "empty -> []");
+
+        var tricky = new[] { new Mistake { type = "Other", wrong = "say \"hi\"\nnow", @fixed = "back\\slash" }, null };
+        string json = MistakeTypes.ToJsonArray(tricky);
+        var parsed = JsonDocument.Parse(json).RootElement;
+        Check(parsed.GetArrayLength() == 1, "null items skipped");
+        Check(parsed[0].GetProperty("wrong").GetString() == "say \"hi\"\nnow", "quotes and newline escaped");
+        Check(parsed[0].GetProperty("fixed").GetString() == "back\\slash", "backslash escaped");
+        Check(parsed[0].GetProperty("type").GetString() == "other", "type normalized");
     }
 }

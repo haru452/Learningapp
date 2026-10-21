@@ -451,6 +451,7 @@ public class DiaryManager : MonoBehaviour
     {
         string corrected;
         string explanation = "";
+        Mistake[] mistakes = null;   // Gemini のときだけ (よくあるミスの集計用)
 
         if (_engine == Engine.Gemini)
         {
@@ -458,6 +459,7 @@ public class DiaryManager : MonoBehaviour
             var result = await _gemini.CorrectDiaryAsync(text);
             corrected = result.corrected;
             explanation = result.explanation;
+            mistakes = result.mistakes;
             correctedText.text = corrected;
             if (explanationText != null) explanationText.text = explanation;
         }
@@ -474,7 +476,7 @@ public class DiaryManager : MonoBehaviour
         _lastExplanation = explanation;
         if (streakView != null) _ = streakView.MarkTodayDoneAsync();   // 今日を「日記を書いた日」として記録 (ログイン中はクラウドにも保存)
         NotifyReminderServerAsync();                          // 「今日は書いた」と Worker に連絡 (待たない)
-        SaveDiaryToCloudAsync(text, corrected, explanation);  // ログイン中なら、日記をクラウドに保存 (待たない)
+        SaveDiaryToCloudAsync(text, corrected, explanation, mistakes);  // ログイン中なら、日記とミスをクラウドに保存 (待たない)
         SetStatus("Done");
 
         await SendToDiscordAsync();
@@ -484,14 +486,18 @@ public class DiaryManager : MonoBehaviour
     // Cloud (添削した日記を、直近7日分だけ保存する。古いものはサーバーが自動で消す)
     // ------------------------------------------------------------
     // 失敗しても、日記の処理には影響しない (画面の処理を待たせない)
-    private async void SaveDiaryToCloudAsync(string original, string corrected, string explanation)
+    // mistakes: Gemini で添削したときのミスの一覧 (DeepL Write のときは null → 保存しない)
+    private async void SaveDiaryToCloudAsync(string original, string corrected, string explanation, Mistake[] mistakes)
     {
-        if (supabase == null || !supabase.IsSignedIn) return;
+        if (supabase == null) return;
 
         try
         {
+            // アプリ起動後、まだログインを復元していない場合もあるので、ここで復元してから保存する
+            if (!await supabase.EnsureSignedInAsync()) return;
             string engineName = _engine == Engine.Gemini ? "Gemini" : "DeepL Write";
             await supabase.SaveDiaryAsync(original, corrected, explanation, engineName);
+            await supabase.SaveMistakesAsync("diary", mistakes);
         }
         catch (Exception e)
         {
@@ -500,12 +506,38 @@ public class DiaryManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------
+    // 要約練習など、日記以外の練習をした日も連続記録に数える (SummaryPracticeManager から呼ぶ)
+    // ------------------------------------------------------------
+    /// <summary>
+    /// 端末内の連続記録に今日を記録し、夜のリマインダーにも「今日はやった」と連絡する。
+    /// ログイン中のクラウドの連続記録は、採点結果を保存したときにサーバーが数える。
+    /// </summary>
+    public void CountOtherPracticeAsStudyDay()
+    {
+        if (streakView != null) streakView.MarkTodayDone();
+        NotifyReminderServerAsync();
+    }
+
+    /// <summary>連続記録カードを、クラウドの最新の値で表示し直す</summary>
+    public void RefreshStreakFromCloud()
+    {
+        if (streakView != null) _ = streakView.RefreshFromCloudAsync();
+    }
+
+    // ------------------------------------------------------------
     // Reminder (Worker に「今日は書いた」と連絡する)
     // ------------------------------------------------------------
     // 画面の処理を待たせないよう、結果は待たない。失敗しても日記の処理には影響しない
     private async void NotifyReminderServerAsync()
     {
-        if (!sendReminderPing || _reminder == null || !_reminder.IsConfigured) return;
+        // 日記の画面を一度も開いていない (Awake 前) ときのために、ここでも用意する
+        if (_reminder == null)
+        {
+            var secrets = ApiSecrets.Data;
+            _reminder = new ReminderClient(ApiSecrets.Pick(secrets.reminderWorkerUrl, reminderWorkerUrl),
+                                           ApiSecrets.Pick(secrets.reminderSecret, reminderSecret));
+        }
+        if (!sendReminderPing || !_reminder.IsConfigured) return;
 
         try
         {

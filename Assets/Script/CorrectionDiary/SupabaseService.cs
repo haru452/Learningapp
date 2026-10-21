@@ -53,6 +53,8 @@ public class SupabaseService : MonoBehaviour
     // ------------------------------------------------------------
     private const string PrefRefresh = "sb_refresh_token";
     private const string PrefEmail = "sb_email";
+    private const string PrefRemember = "sb_remember_device";
+    private const string PrefLastEmail = "sb_last_email";
 
     private string _accessToken = "";
     private string _refreshToken = "";
@@ -64,6 +66,25 @@ public class SupabaseService : MonoBehaviour
     // Project URL / anon キーは Assets/Resources/ApiSecrets.json を優先 (空なら Inspector の値)
     private string ProjectUrl => ApiSecrets.Pick(ApiSecrets.Data.supabaseUrl, projectUrl) ?? "";
     private string AnonKey => ApiSecrets.Pick(ApiSecrets.Data.supabaseAnonKey, anonKey) ?? "";
+
+    /// <summary>
+    /// 「Remember this device」。true (初期値) ならログインを端末に保存し、次回起動時に復元する。
+    /// false なら保存しない (アプリを閉じるとログアウトになる)。
+    /// </summary>
+    public bool RememberDevice
+    {
+        get => PlayerPrefs.GetInt(PrefRemember, 1) == 1;
+        set
+        {
+            PlayerPrefs.SetInt(PrefRemember, value ? 1 : 0);
+            if (value && IsSignedIn) SaveSessionToDevice();
+            if (!value) DeleteSavedSession();
+            PlayerPrefs.Save();
+        }
+    }
+
+    /// <summary>最後にログインに使ったメールアドレス (入力欄に最初から入れておく用)</summary>
+    public string LastEmail => PlayerPrefs.GetString(PrefLastEmail, "");
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ProjectUrl) && !string.IsNullOrWhiteSpace(AnonKey);
 
@@ -130,6 +151,17 @@ public class SupabaseService : MonoBehaviour
         ApplySession(dto, email.Trim());
     }
 
+    /// <summary>
+    /// パスワード再設定のメールを送る。メールのリンクを開くと、Web 版 (Site URL) で新しいパスワードを決められる。
+    /// 登録されていないメールでも、安全のためエラーにはならない。
+    /// </summary>
+    public async Task SendPasswordResetAsync(string email)
+    {
+        RequireConfig();
+        string json = "{\"email\":\"" + HttpUtil.JsonEscape(email.Trim()) + "\"}";
+        await PostAsync("/auth/v1/recover", json, null);
+    }
+
     public async Task SignOutAsync()
     {
         string token = _accessToken;
@@ -154,6 +186,22 @@ public class SupabaseService : MonoBehaviour
         if (_restoreTask == null || (_restoreTask.IsCompleted && !IsSignedIn))
             _restoreTask = DoRestoreSessionAsync();
         return _restoreTask;
+    }
+
+    /// <summary>
+    /// ログイン中なら true。まだ前回のログインを復元していなければ、ここで復元してから答える。
+    /// (設定画面を開く前でも、日記の保存や連続記録の更新がクラウドに届くようにするため)
+    /// </summary>
+    public async Task<bool> EnsureSignedInAsync()
+    {
+        if (IsSignedIn) return true;
+        if (!IsConfigured) return false;
+        try { return await TryRestoreSessionAsync(); }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Supabase] could not restore session: " + e.Message);
+            return false;
+        }
     }
 
     private async Task<bool> DoRestoreSessionAsync()
@@ -315,6 +363,8 @@ public class SupabaseService : MonoBehaviour
                 {
                     await SaveSummaryResultAsync(item.videoId, item.videoTitle, item.timeLimitSeconds, item.grade, item.TakenAtUtc);
                     uploaded++;
+                    try { await SaveMistakesAsync("summary", item.grade?.mistakes, item.TakenAtUtc); }
+                    catch (Exception e) { Debug.LogWarning("[Supabase] could not save mistakes of a pending summary: " + e.Message); }
                 }
                 catch (SupabaseException e) when (e.StatusCode == 400)
                 {
@@ -342,6 +392,148 @@ public class SupabaseService : MonoBehaviour
             Debug.Log($"[Supabase] uploaded {uploaded} summary result(s) taken before signing in.");
             PendingSummaryUploaded?.Invoke(uploaded);
         }
+        return uploaded;
+    }
+
+    // ------------------------------------------------------------
+    // お題スピーキングの結果と、よくあるミス (supabase/topic.sql)
+    // ------------------------------------------------------------
+    public struct WeakPoint
+    {
+        public string Type;          // MistakeTypes.All のどれか
+        public int Count;            // 直近 30 日の回数
+        public int PreviousCount;    // その前の 30 日の回数
+    }
+
+    [Serializable] private class WeakRow { public string type; public int count; public int previous_count; }
+    [Serializable] private class WeakRows { public WeakRow[] rows; }
+
+    private static string TakenAtJson(DateTime? takenAtUtc) =>
+        takenAtUtc == null
+            ? ""
+            : ",\"p_taken_at\":\"" + takenAtUtc.Value.ToUniversalTime()
+                .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture) + "\"";
+
+    /// <summary>お題スピーキングの結果 (とミス) を1件保存する。保存した結果の id を返す</summary>
+    public async Task<long> SaveTopicResultAsync(
+        string kind, string topic, int seconds, GeminiApiClient.TopicGrade g, string transcript,
+        int? readAloudAccuracy, DateTime? takenAtUtc = null)
+    {
+        string Field(string name, string value) =>
+            ",\"" + name + "\":\"" + HttpUtil.JsonEscape(value ?? "") + "\"";
+
+        string extra =
+            Field("p_kind", kind) +
+            Field("p_topic", topic) +
+            ",\"p_time_limit\":" + seconds +
+            ",\"p_score\":" + g.score +
+            ",\"p_content_score\":" + g.contentScore +
+            ",\"p_organization_score\":" + g.organizationScore +
+            ",\"p_language_score\":" + g.languageScore +
+            Field("p_transcript", transcript) +
+            Field("p_corrected", g.corrected) +
+            Field("p_natural", g.natural) +
+            Field("p_good_points", g.goodPoints) +
+            Field("p_fix_points", g.fixPoints) +
+            Field("p_phrases", g.phrases != null ? string.Join("\n", g.phrases) : "") +
+            ",\"p_read_aloud_accuracy\":" + (readAloudAccuracy.HasValue ? readAloudAccuracy.Value.ToString() : "null") +
+            ",\"p_mistakes\":" + MistakeTypes.ToJsonArray(g.mistakes) +
+            TakenAtJson(takenAtUtc);
+
+        string body = await RpcAsync("save_topic_result", extra);
+        return long.TryParse(body.Trim(), out long id) ? id : 0;
+    }
+
+    /// <summary>言い直しの一致率を、保存済みの結果にあとから入れる</summary>
+    public async Task SetTopicReadAloudAsync(long id, int accuracy)
+    {
+        if (id <= 0) return;
+        await RpcAsync("set_topic_read_aloud", ",\"p_id\":" + id + ",\"p_accuracy\":" + Mathf.Clamp(accuracy, 0, 100));
+    }
+
+    /// <summary>日記・要約の添削で見つかったミスを保存する。0 件なら何もしない</summary>
+    public async Task SaveMistakesAsync(string source, Mistake[] mistakes, DateTime? takenAtUtc = null)
+    {
+        if (mistakes == null || mistakes.Length == 0) return;
+        string extra =
+            ",\"p_source\":\"" + HttpUtil.JsonEscape(source ?? "") + "\"" +
+            ",\"p_mistakes\":" + MistakeTypes.ToJsonArray(mistakes) +
+            TakenAtJson(takenAtUtc);
+        await RpcAsync("save_mistakes", extra);
+    }
+
+    /// <summary>
+    /// 直近 30 日で多いミスの種類 (最大 3 つ、多い順)。
+    /// ログインしていない・通信できない・サーバーが古いときは空 (例外は出さない)。
+    /// </summary>
+    public async Task<WeakPoint[]> GetWeakPointsAsync()
+    {
+        try
+        {
+            if (!await EnsureSignedInAsync()) return new WeakPoint[0];
+            string body = await RpcAsync("get_my_weak_points");
+            var rows = JsonUtility.FromJson<WeakRows>("{\"rows\":" + body + "}");
+            if (rows?.rows == null) return new WeakPoint[0];
+            var list = new WeakPoint[rows.rows.Length];
+            for (int i = 0; i < list.Length; i++)
+                list[i] = new WeakPoint
+                {
+                    Type = MistakeTypes.Normalize(rows.rows[i].type),
+                    Count = rows.rows[i].count,
+                    PreviousCount = rows.rows[i].previous_count,
+                };
+            return list;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Supabase] could not get weak points: " + e.Message);
+            return new WeakPoint[0];
+        }
+    }
+
+    // ------------------------------------------------------------
+    // ログイン前に受けたお題スピーキングの結果を、ログインしたときにまとめて送る
+    // ------------------------------------------------------------
+    private bool _uploadingPendingTopic;
+
+    /// <summary>端末に一時保存されているお題スピーキングの結果を、古い順に送る。送れた件数を返す</summary>
+    public async Task<int> UploadPendingTopicResultsAsync()
+    {
+        if (_uploadingPendingTopic || !IsSignedIn) return 0;
+        _uploadingPendingTopic = true;
+        int uploaded = 0;
+        try
+        {
+            var list = PendingTopicStore.Load();
+            while (list.Count > 0 && IsSignedIn)
+            {
+                var item = list[0];
+                try
+                {
+                    await SaveTopicResultAsync(item.kind, item.topic, item.seconds, item.grade, item.transcript,
+                        null, item.TakenAtUtc);
+                    uploaded++;
+                }
+                catch (SupabaseException e) when (e.StatusCode == 400)
+                {
+                    Debug.LogWarning("[Supabase] dropped a pending topic result that cannot be saved: " + e.Message);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning("[Supabase] could not upload pending topic results now: " + e.Message);
+                    break;
+                }
+
+                list.RemoveAt(0);
+                PendingTopicStore.Save(list);
+            }
+        }
+        finally
+        {
+            _uploadingPendingTopic = false;
+        }
+
+        if (uploaded > 0) Debug.Log($"[Supabase] uploaded {uploaded} topic result(s) taken before signing in.");
         return uploaded;
     }
 
@@ -415,14 +607,16 @@ public class SupabaseService : MonoBehaviour
         string mail = dto.user != null && !string.IsNullOrEmpty(dto.user.email) ? dto.user.email : fallbackEmail;
         Email = mail ?? "";
 
-        PlayerPrefs.SetString(PrefRefresh, _refreshToken);
-        PlayerPrefs.SetString(PrefEmail, Email);
+        if (!string.IsNullOrEmpty(Email)) PlayerPrefs.SetString(PrefLastEmail, Email);
+        if (RememberDevice) SaveSessionToDevice();
+        else DeleteSavedSession();   // 保存しない設定 → 古い保存も消す
         PlayerPrefs.Save();
 
         if (!wasSignedIn)
         {
             AuthChanged?.Invoke();
             _ = UploadPendingSummaryResultsAsync();   // ログイン前に受けた要約練習の結果を送る (待たない)
+            _ = UploadPendingTopicResultsAsync();     // ログイン前に受けたお題スピーキングの結果も送る (待たない)
         }
     }
 
@@ -433,10 +627,21 @@ public class SupabaseService : MonoBehaviour
         _refreshToken = "";
         _expiresAtUtc = DateTime.MinValue;
         Email = "";
-        PlayerPrefs.DeleteKey(PrefRefresh);
-        PlayerPrefs.DeleteKey(PrefEmail);
+        DeleteSavedSession();
         PlayerPrefs.Save();
         if (was) AuthChanged?.Invoke();
+    }
+
+    private void SaveSessionToDevice()
+    {
+        PlayerPrefs.SetString(PrefRefresh, _refreshToken);
+        PlayerPrefs.SetString(PrefEmail, Email);
+    }
+
+    private static void DeleteSavedSession()
+    {
+        PlayerPrefs.DeleteKey(PrefRefresh);
+        PlayerPrefs.DeleteKey(PrefEmail);
     }
 
     private async Task<string> PostAsync(string path, string json, string bearer)
@@ -488,6 +693,7 @@ public class SupabaseService : MonoBehaviour
             case "weak_password": return "Password is too weak. Use at least 6 characters.";
             case "over_email_send_rate_limit":
             case "over_request_rate_limit": return "Too many attempts. Please wait a minute and try again.";
+            case "email_address_invalid": return "Please enter a valid email address.";
             case "signup_disabled": return "Sign-up is turned off for this project.";
         }
 

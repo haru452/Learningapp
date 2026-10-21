@@ -506,6 +506,7 @@ public class SummaryPracticeManager : MonoBehaviour
             _pendingWav = null;
             ShowGrade(grade);
             SaveResultToCloudAsync(_video, grade);   // ログイン中なら保存 (待たない)
+            CountAsStudyDay();                       // 要約練習をした日も、連続記録に数える
 
             string discordError = await SendToDiscordAsync(_video, grade);
             SetState(State.Idle);
@@ -585,7 +586,8 @@ public class SummaryPracticeManager : MonoBehaviour
         if (supabase == null || !supabase.IsConfigured) return;
 
         DateTime takenAt = DateTime.UtcNow;
-        if (!supabase.IsSignedIn)
+        // アプリ起動後、まだログインを復元していない場合もあるので、ここで復元してから判断する
+        if (!await supabase.EnsureSignedInAsync())
         {
             PendingSummaryStore.Add(video.id, video.title, timeLimitSeconds, g, takenAt);
             Debug.Log("[SummaryPractice] not signed in: the result was kept on this device and will be uploaded after signing in.");
@@ -595,7 +597,11 @@ public class SummaryPracticeManager : MonoBehaviour
         try
         {
             await supabase.SaveSummaryResultAsync(video.id, video.title, timeLimitSeconds, g, takenAt);
+            try { await supabase.SaveMistakesAsync("summary", g.mistakes, takenAt); }   // よくあるミスの集計用
+            catch (Exception e) { Debug.LogWarning("[SummaryPractice] could not save mistakes: " + e.Message); }
             if (PendingSummaryStore.Count > 0) _ = supabase.UploadPendingSummaryResultsAsync();   // 前に送れなかった分も、ついでに送る
+            var diary = FindDiary();
+            if (diary != null) diary.RefreshStreakFromCloud();   // サーバーが数えた連続記録を、カードに反映する
         }
         catch (SupabaseService.SupabaseException e) when (e.StatusCode == 400)
         {
@@ -606,6 +612,23 @@ public class SummaryPracticeManager : MonoBehaviour
             Debug.LogWarning("[SummaryPractice] could not save the result to the cloud. Keeping it to upload later: " + e.Message);
             PendingSummaryStore.Add(video.id, video.title, timeLimitSeconds, g, takenAt);
         }
+    }
+
+    // ------------------------------------------------------------
+    // 連続記録 (要約練習をした日も数える)
+    // ------------------------------------------------------------
+    private DiaryManager _diary;
+
+    private DiaryManager FindDiary()
+    {
+        if (_diary == null) _diary = FindObjectOfType<DiaryManager>(true);
+        return _diary;
+    }
+
+    private void CountAsStudyDay()
+    {
+        var diary = FindDiary();
+        if (diary != null) diary.CountOtherPracticeAsStudyDay();
     }
 
     private static void AppendSection(StringBuilder sb, string heading, string body)
