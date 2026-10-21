@@ -33,8 +33,8 @@ public class TopicPracticeManager : MonoBehaviour
     [SerializeField] private string geminiFallbackModel = "gemini-3.8-flash";
 
     [Header("Practice")]
-    [Tooltip("考える時間 (秒)")]
-    [SerializeField] private int thinkSeconds = 15;
+    [Tooltip("考える時間 (秒)。「Start now」で早めに話し始められる")]
+    [SerializeField] private int thinkSeconds = 60;
     [SerializeField] private string speechLanguage = "en-US";
 
     [Header("Discord (要約練習と同じチャンネル。空なら ApiSecrets.json の値)")]
