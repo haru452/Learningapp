@@ -156,7 +156,9 @@ public class TopicPracticeManager : MonoBehaviour
 
         if (supabase == null) supabase = FindObjectOfType<SupabaseService>(true);
 
-        _gemini = new GeminiApiClient(geminiApiKey, geminiModel, geminiFallbackModel);
+        // お題スピーキングは 2 つ目のキー (無ければ 1 つ目) を使い、上限になったら もう片方を借りる
+        string topicKey = ApiSecrets.Pick(secrets.geminiApiKey2, geminiApiKey);
+        _gemini = new GeminiApiClient(topicKey, geminiModel, geminiFallbackModel, backupApiKey: geminiApiKey);
         _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
     }
 

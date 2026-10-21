@@ -12,7 +12,8 @@ using UnityEngine;
 [Serializable]
 public class ApiSecrets
 {
-    public string geminiApiKey;
+    public string geminiApiKey;       // 日記・要約練習で使う Gemini のキー
+    public string geminiApiKey2;      // お題スピーキングで使う 2 つ目のキー (空なら geminiApiKey)。上限になったら互いのキーを借りる
     public string deeplApiKey;
     public string discordWebhookUrl;
     public string discordBotToken;

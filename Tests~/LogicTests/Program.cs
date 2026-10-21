@@ -25,6 +25,7 @@ public static class LogicTests
         MistakeTypeTests();
         ReadAloudTests();
         SchemaTests();
+        AttemptOrderTests();
         TopicCatalogTests();
         MistakesJsonTests();
 
@@ -80,6 +81,25 @@ public static class LogicTests
         Check(r.AccuracyPercent == 100, $"em dash splits words ({r.AccuracyPercent})");
         r = ReadAloudMatcher.Match("Wait - what?", "wait what");
         Check(r.AccuracyPercent == 100 && r.Words.Count == 2, $"lone dash is not a word ({r.AccuracyPercent}, {r.Words.Count})");
+    }
+
+    // API キーが 2 つあるとき: 自分のキーで (メイン → 予備モデル)、上限なら もう片方のキーで (メイン → 予備モデル)
+    private static void AttemptOrderTests()
+    {
+        string Show(System.Collections.Generic.List<(int key, string model)> list) =>
+            string.Join(" ", list.Select(a => a.key + ":" + a.model));
+
+        var two = GeminiApiClient.AttemptOrder(new[] { "k1", "k2" }, new[] { "main", "lite" });
+        Check(Show(two) == "0:main 0:lite 1:main 1:lite", "two keys: own key first, then the other " + Show(two));
+
+        var oneKey = GeminiApiClient.AttemptOrder(new[] { "k1", "" }, new[] { "main", "lite" });
+        Check(Show(oneKey) == "0:main 0:lite", "empty second key is skipped " + Show(oneKey));
+
+        var sameKey = GeminiApiClient.AttemptOrder(new[] { "k1", "k1" }, new[] { "main", null });
+        Check(Show(sameKey) == "0:main", "same key twice and empty fallback model are skipped " + Show(sameKey));
+
+        var none = GeminiApiClient.AttemptOrder(new[] { "", null }, new[] { "main" });
+        Check(none.Count == 0, "no keys -> no attempts");
     }
 
     // Gemini に渡す JSON スキーマが正しい JSON で、決めた形になっていること

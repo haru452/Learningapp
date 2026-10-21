@@ -13,17 +13,39 @@ public class GeminiApiClient
     private const string EndpointBase =
         "https://generativelanguage.googleapis.com/v1beta/models/";
 
-    private readonly string _apiKey;
+    private readonly string[] _apiKeys;   // [0] = この機能のキー、[1] = 上限のときに借りるもう 1 つのキー
     private readonly string _model;
     private readonly string _fallbackModel;
 
     /// <param name="fallbackModel">メインモデルが混雑時(503等)に切り替える予備モデル。空なら使わない</param>
-    public GeminiApiClient(string apiKey, string model = "gemini-3.8-flash", string fallbackModel = null)
+    /// <param name="backupApiKey">
+    /// apiKey が利用上限 (429) になったときに使うもう 1 つのキー。空なら使わない。
+    /// ※ Gemini の上限は「キーごと」ではなく「Google Cloud のプロジェクトごと」。別のプロジェクトで作ったキーでないと枠は増えない
+    /// </param>
+    public GeminiApiClient(string apiKey, string model = "gemini-3.8-flash", string fallbackModel = null,
+                           string backupApiKey = null)
     {
-        _apiKey = apiKey;
+        _apiKeys = new[] { apiKey, backupApiKey };
         _model = model;
         _fallbackModel = fallbackModel;
     }
+
+    /// <summary>
+    /// 試す順番: 自分のキーでメイン → 予備モデル、それでも上限ならもう片方のキーでメイン → 予備モデル。
+    /// 空・重複したキーやモデルは飛ばす。key は「空と重複を除いたキー」の番号
+    /// </summary>
+    public static List<(int key, string model)> AttemptOrder(string[] apiKeys, string[] models)
+    {
+        var keys = (apiKeys ?? new string[0]).Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim()).Distinct().ToList();
+        var ms = (models ?? new string[0]).Where(m => !string.IsNullOrWhiteSpace(m)).Distinct().ToList();
+        var order = new List<(int key, string model)>();
+        for (int k = 0; k < keys.Count; k++)
+            foreach (string m in ms) order.Add((k, m));
+        return order;
+    }
+
+    private List<string> UsableKeys =>
+        _apiKeys.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim()).Distinct().ToList();
 
     // ------------------------------------------------------------
     // Result types
@@ -525,6 +547,7 @@ public class GeminiApiClient
     // 429: 利用上限 (1分あたり / 1日あたり) → 同じモデルで送り直すと、さらに枠を使ってしまう
     // 404: モデル名が見つからない
     // → どちらも同じモデルではやり直さず、すぐ予備モデルに切り替える (上限はモデルごとに別)
+    // (それでも 429 なら、もう 1 つのキーに切り替える)
     private static bool ShouldSwitchModel(HttpException e) => e.StatusCode == 429 || e.StatusCode == 404;
 
     /// <summary>
@@ -533,27 +556,27 @@ public class GeminiApiClient
     /// </summary>
     private async Task<string> PostWithRetryAsync(string body)
     {
-        string[] models = string.IsNullOrEmpty(_fallbackModel)
-            ? new[] { _model }
-            : new[] { _model, _fallbackModel };
+        var keys = UsableKeys;
+        var order = AttemptOrder(keys.ToArray(), new[] { _model, _fallbackModel });
 
         HttpException lastError = null;
 
-        foreach (string model in models)
+        foreach (var (keyIndex, model) in order)
         {
             string url = $"{EndpointBase}{model}:generateContent";
+            string apiKey = keys[keyIndex];
 
             for (int attempt = 0; attempt < MaxAttemptsPerModel; attempt++)
             {
                 try
                 {
                     return await HttpUtil.PostJsonAsync(
-                        url, body, new[] { ("x-goog-api-key", _apiKey) }, timeoutSeconds: 90);
+                        url, body, new[] { ("x-goog-api-key", apiKey) }, timeoutSeconds: 90);
                 }
                 catch (HttpException e) when (ShouldSwitchModel(e))
                 {
                     lastError = e;
-                    Debug.LogWarning($"[Gemini] {model} failed ({e.StatusCode}). Switching to the fallback model without retrying.");
+                    Debug.LogWarning($"[Gemini] {model} (key {keyIndex + 1}) failed ({e.StatusCode}). Switching to the next model/key without retrying.");
                     break;
                 }
                 catch (HttpException e) when (IsTemporary(e))
@@ -595,7 +618,7 @@ public class GeminiApiClient
     /// <param name="extraConfig">generationConfig に足す設定 (例: "\"temperature\":0.2")。無ければ null</param>
     private async Task<string> GeneratePartsAsync(string partsJson, string schemaJson, string extraConfig = null)
     {
-        if (string.IsNullOrEmpty(_apiKey))
+        if (UsableKeys.Count == 0)
             throw new InvalidOperationException("Gemini API key is not set.");
 
         // JsonUtility は null/空フィールドも出力してしまうため、リクエストは文字列で組み立てる
