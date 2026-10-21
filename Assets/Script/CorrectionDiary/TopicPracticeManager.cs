@@ -109,12 +109,21 @@ public class TopicPracticeManager : MonoBehaviour
     private int _sessionId;
     private int _consecutiveErrors;
 
-    // 採点に失敗したときの再試行用
+    // 採点・文字起こしに失敗したときの再試行用
     private string _retryText;
+    private byte[] _retryWav;        // 録音モードで文字起こしに失敗したときの録音 (答えを失わないように)
+    private byte[] _transcribingWav;
 
-    // 保存と言い直し
-    private long _savedId;
-    private int? _pendingReadAccuracy;
+    // 採点結果 1 回分の保存先。言い直しの一致率は、その結果に入れる (次のお題の結果に入らないように)
+    private class SaveTicket
+    {
+        public long Id;                // クラウドに保存できたときの ID
+        public string PendingLocalId;  // 端末に一時保存したときの ID
+        public int? ReadAloudAccuracy; // 言い直しが終わったときの一致率
+    }
+    private SaveTicket _ticket;
+
+    // 言い直し
     private string[] _readSentences = new string[0];
     private int _readIndex;
     private readonly List<int> _readScores = new List<int>();
@@ -243,8 +252,47 @@ public class TopicPracticeManager : MonoBehaviour
 
     private async void OnRetryClicked()
     {
-        if (_busy || _state != State.Idle || string.IsNullOrEmpty(_retryText)) return;
+        if (_busy || _state != State.Idle) return;
+        if (_retryWav != null) { await RetryTranscriptionAsync(); return; }
+        if (string.IsNullOrEmpty(_retryText)) return;
         await GradeAsync(_retryText);
+    }
+
+    // 録音モードで文字起こしに失敗した答えを、もう一度文字起こしして採点する
+    private async Task RetryTranscriptionAsync()
+    {
+        byte[] wav = _retryWav;
+        _busy = true;
+        SetLoading(true);
+        SetStatus("Transcribing...");
+        RefreshButtons();
+        string text;
+        try
+        {
+            text = ((await _gemini.TranscribeAsync(wav)) ?? "").Trim();
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+            if (this == null) return;
+            SetLoading(false);
+            _busy = false;
+            SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to try again)");
+            RefreshButtons();
+            return;
+        }
+        if (this == null) return;
+        _retryWav = null;
+        SetLoading(false);
+        _busy = false;
+        if (transcriptText != null) transcriptText.text = text;
+        if (CountWords(text) < 2)
+        {
+            SetStatus("Please speak a little more. Tap \"New Topic\" to try again.");
+            RefreshButtons();
+            return;
+        }
+        await GradeAsync(text);
     }
 
     // ------------------------------------------------------------
@@ -254,6 +302,7 @@ public class TopicPracticeManager : MonoBehaviour
     {
         _busy = true;
         _retryText = null;
+        _retryWav = null;
         ClearTopic();
         ClearResults();
         SetState(State.Generating);
@@ -435,7 +484,10 @@ public class TopicPracticeManager : MonoBehaviour
         byte[] wav = recorder.IsRecording ? recorder.StopRecording() : null;
         if (wav == null) return "";
         SetStatus("Transcribing...");
-        return ((await _gemini.TranscribeAsync(wav)) ?? "").Trim();
+        _transcribingWav = wav;   // 失敗したときに答えを失わないように取っておく
+        string text = ((await _gemini.TranscribeAsync(wav)) ?? "").Trim();
+        _transcribingWav = null;
+        return text;
     }
 
     // ------------------------------------------------------------
@@ -459,6 +511,18 @@ public class TopicPracticeManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogException(e);
+            if (this == null) return;
+            if (_transcribingWav != null)
+            {
+                // 文字起こしだけ失敗した: 録音は残して、Retry でもう一度文字起こしできるようにする
+                _retryWav = _transcribingWav;
+                _transcribingWav = null;
+                _busy = false;
+                SetLoading(false);
+                SetState(State.Idle);
+                SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to transcribe your answer again)");
+                return;
+            }
             text = "";
         }
         if (this == null) return;
@@ -496,7 +560,8 @@ public class TopicPracticeManager : MonoBehaviour
             SaveLastCounts(counts);
             SetUpReadAloud(grade.readAloud);
 
-            SaveResultToCloudAsync(_topic, seconds, grade, text);   // 待たない
+            _ticket = new SaveTicket();
+            SaveResultToCloudAsync(_ticket, _topic, seconds, grade, text);   // 待たない
             CountAsStudyDay();
 
             string discordError = await SendToDiscordAsync(grade);
@@ -565,7 +630,6 @@ public class TopicPracticeManager : MonoBehaviour
         _readScores.Clear();
         _lastPronComment = "";
         _lastReadResult = "";
-        _pendingReadAccuracy = null;
         RefreshReadAloud();
     }
 
@@ -613,8 +677,17 @@ public class TopicPracticeManager : MonoBehaviour
         {
             _finishing = false;
             _reading = false;
+            _transcribingWav = null;
         }
         if (this == null || ReadAloudFinished) return;
+
+        // 何も聞き取れなかった (通信エラー・無音など) ときは 0% にせず、もう一度読んでもらう
+        if (string.IsNullOrWhiteSpace(heard))
+        {
+            SetStatus("I couldn't hear you. Tap \"Read aloud\" to try again.");
+            RefreshReadAloud();
+            return;
+        }
 
         var match = ReadAloudMatcher.Match(_readSentences[_readIndex], heard);
         _readScores.Add(match.AccuracyPercent);
@@ -635,8 +708,12 @@ public class TopicPracticeManager : MonoBehaviour
         if (readAloudText != null) readAloudText.text = "<b>Read-aloud accuracy: " + average + "%</b>";
         SetStatus("Read-aloud finished! Tap \"New Topic\" for another topic.");
 
-        if (_savedId > 0) _ = SaveReadAloudAsync(_savedId, average);
-        else _pendingReadAccuracy = average;   // 結果の保存が終わったら入れる
+        var ticket = _ticket;
+        if (ticket == null) return;
+        ticket.ReadAloudAccuracy = average;
+        if (ticket.Id > 0) _ = SaveReadAloudAsync(ticket.Id, average);
+        else if (ticket.PendingLocalId != null) PendingTopicStore.SetReadAloud(ticket.PendingLocalId, average);
+        // どちらでもない (保存中) ときは、保存が終わったところで入れる
     }
 
     private async Task SaveReadAloudAsync(long id, int accuracy)
@@ -736,28 +813,29 @@ public class TopicPracticeManager : MonoBehaviour
     // 結果の保存・送信・連続記録
     // ------------------------------------------------------------
     // 失敗しても採点結果は画面に残る。ログインしていない・送れないときは端末に一時保存し、ログイン時にまとめて送る
-    private async void SaveResultToCloudAsync(GeminiApiClient.TopicPrompt topic, int seconds, GeminiApiClient.TopicGrade g, string transcript)
+    private async void SaveResultToCloudAsync(SaveTicket ticket, GeminiApiClient.TopicPrompt topic, int seconds,
+                                              GeminiApiClient.TopicGrade g, string transcript)
     {
-        _savedId = 0;
         if (supabase == null || !supabase.IsConfigured) return;
 
         DateTime takenAt = DateTime.UtcNow;
         if (!await supabase.EnsureSignedInAsync())
         {
-            PendingTopicStore.Add(topic.kind, topic.topic, seconds, g, transcript, takenAt);
+            ticket.PendingLocalId = PendingTopicStore.Add(topic.kind, topic.topic, seconds, g, transcript, takenAt,
+                                                          ticket.ReadAloudAccuracy);
             return;
         }
 
         try
         {
-            long id = await supabase.SaveTopicResultAsync(topic.kind, topic.topic, seconds, g, transcript, null, takenAt);
+            long id = await supabase.SaveTopicResultAsync(topic.kind, topic.topic, seconds, g, transcript,
+                                                          ticket.ReadAloudAccuracy, takenAt);
+            int? sent = ticket.ReadAloudAccuracy;
+            ticket.Id = id;
+            // 保存している間に言い直しが終わっていたら、その一致率を入れる
+            if (id > 0 && ticket.ReadAloudAccuracy.HasValue && ticket.ReadAloudAccuracy != sent)
+                await SaveReadAloudAsync(id, ticket.ReadAloudAccuracy.Value);
             if (this == null) return;
-            _savedId = id;
-            if (_pendingReadAccuracy.HasValue && id > 0)
-            {
-                await SaveReadAloudAsync(id, _pendingReadAccuracy.Value);
-                _pendingReadAccuracy = null;
-            }
             if (PendingTopicStore.Count > 0) _ = supabase.UploadPendingTopicResultsAsync();
             var diary = FindDiary();
             if (diary != null) diary.RefreshStreakFromCloud();   // サーバーが数えた連続記録を、カードに反映する
@@ -769,7 +847,8 @@ public class TopicPracticeManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogWarning("[TopicPractice] could not save the result. Keeping it to upload later: " + e.Message);
-            PendingTopicStore.Add(topic.kind, topic.topic, seconds, g, transcript, takenAt);
+            ticket.PendingLocalId = PendingTopicStore.Add(topic.kind, topic.topic, seconds, g, transcript, takenAt,
+                                                          ticket.ReadAloudAccuracy);
         }
     }
 
@@ -868,7 +947,7 @@ public class TopicPracticeManager : MonoBehaviour
         if (timerText != null) timerText.text = "";
         if (transcriptText != null) transcriptText.text = "";
         if (resultText != null) resultText.text = "";
-        _savedId = 0;
+        _ticket = null;
         SetUpReadAloud(null);
     }
 
@@ -911,7 +990,7 @@ public class TopicPracticeManager : MonoBehaviour
         }
         if (retryButton != null)
         {
-            retryButton.gameObject.SetActive(_state == State.Idle && !string.IsNullOrEmpty(_retryText));
+            retryButton.gameObject.SetActive(_state == State.Idle && (!string.IsNullOrEmpty(_retryText) || _retryWav != null));
             retryButton.interactable = !_busy;
         }
         RefreshReadAloud();

@@ -314,8 +314,12 @@ public static class TopicScreenBuilder
             UnityEventTools.RemovePersistentListener(tab.onClick, i);
 
         UnityEventTools.AddBoolPersistentListener(tab.onClick, topicScreen.SetActive, true);
+        // (Diary タブには上で「topic screen を隠す」を足したので、それは写さない。写すと Topic タブが自分の画面を隠してしまう)
         foreach (var c in diaryCalls)
+        {
+            if (c.target == topicScreen) continue;
             UnityEventTools.AddBoolPersistentListener(tab.onClick, c.target.SetActive, false);
+        }
 
         string layout = RearrangeTabs(leftOfNew.GetComponent<Button>(), tab)
             ? "タブを並べ直しました。"

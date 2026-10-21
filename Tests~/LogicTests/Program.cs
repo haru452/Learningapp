@@ -72,6 +72,14 @@ public static class LogicTests
         Check(ReadAloudMatcher.Match("Hi there.", null).AccuracyPercent == 0, "null heard -> 0");
         var empty = ReadAloudMatcher.Match("", "anything");
         Check(empty.Words.Count == 0 && empty.AccuracyPercent == 0, "empty expected");
+
+        // ハイフン・ダッシュは語の区切りとして扱う (音声認識は "well known" のように分けて返す)
+        r = ReadAloudMatcher.Match("It is a well-known place.", "it is a well known place");
+        Check(r.AccuracyPercent == 100, $"hyphen splits words ({r.AccuracyPercent})");
+        r = ReadAloudMatcher.Match("I think—honestly—it is fine.", "I think honestly it is fine");
+        Check(r.AccuracyPercent == 100, $"em dash splits words ({r.AccuracyPercent})");
+        r = ReadAloudMatcher.Match("Wait - what?", "wait what");
+        Check(r.AccuracyPercent == 100 && r.Words.Count == 2, $"lone dash is not a word ({r.AccuracyPercent}, {r.Words.Count})");
     }
 
     // Gemini に渡す JSON スキーマが正しい JSON で、決めた形になっていること

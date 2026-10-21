@@ -511,7 +511,7 @@ public class SupabaseService : MonoBehaviour
                 try
                 {
                     await SaveTopicResultAsync(item.kind, item.topic, item.seconds, item.grade, item.transcript,
-                        null, item.TakenAtUtc);
+                        item.ReadAloudAccuracy, item.TakenAtUtc);
                     uploaded++;
                 }
                 catch (SupabaseException e) when (e.StatusCode == 400)

@@ -22,6 +22,10 @@ public static class PendingTopicStore
         public string transcript;
         public string takenAtUtc;                 // 練習した日時 (UTC, ISO 8601)
         public GeminiApiClient.TopicGrade grade;
+        public string localId;                    // この結果の端末内の ID (後から言い直しの一致率を入れるため)
+        public int readAloudAccuracy = -1;        // 言い直しの一致率 (0〜100)。まだ無いときは -1
+
+        public int? ReadAloudAccuracy => readAloudAccuracy >= 0 ? readAloudAccuracy : (int?)null;
 
         public DateTime TakenAtUtc =>
             DateTime.TryParse(takenAtUtc, CultureInfo.InvariantCulture,
@@ -39,10 +43,12 @@ public static class PendingTopicStore
     /// <summary>まだ送っていない結果の件数</summary>
     public static int Count => Load().Count;
 
-    public static void Add(string kind, string topic, int seconds, GeminiApiClient.TopicGrade grade,
-                           string transcript, DateTime takenAtUtc)
+    /// <summary>結果を一時保存し、その結果の ID を返す (SetReadAloud に使う)。保存しなかったら null</summary>
+    public static string Add(string kind, string topic, int seconds, GeminiApiClient.TopicGrade grade,
+                             string transcript, DateTime takenAtUtc, int? readAloudAccuracy = null)
     {
-        if (grade == null) return;
+        if (grade == null) return null;
+        string localId = Guid.NewGuid().ToString("N");
 
         var list = Load();
         list.Add(new Item
@@ -53,10 +59,25 @@ public static class PendingTopicStore
             transcript = transcript ?? "",
             takenAtUtc = takenAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture),
             grade = grade,
+            localId = localId,
+            readAloudAccuracy = readAloudAccuracy ?? -1,
         });
 
         if (list.Count > MaxItems) list.RemoveRange(0, list.Count - MaxItems);   // 古いものから捨てる
         Save(list);
+        return localId;
+    }
+
+    /// <summary>一時保存した結果に、言い直しの一致率を入れる (もう送ってあって見つからなければ false)</summary>
+    public static bool SetReadAloud(string localId, int accuracy)
+    {
+        if (string.IsNullOrEmpty(localId)) return false;
+        var list = Load();
+        var item = list.Find(i => i.localId == localId);
+        if (item == null) return false;
+        item.readAloudAccuracy = Math.Max(0, Math.Min(100, accuracy));
+        Save(list);
+        return true;
     }
 
     public static List<Item> Load()

@@ -4,7 +4,7 @@ using System.Text;
 
 /// <summary>
 /// 言い直しの照合: お手本の文 (expected) と、音声認識で聞き取れた文 (heard) を単語ごとに比べる。
-/// ・大文字小文字、句読点は無視する
+/// ・大文字小文字、句読点は無視する。ハイフン・ダッシュは語の区切りとして扱う
 /// ・縮約形は展開して比べる (don't ⇔ do not、I'm ⇔ I am など)
 /// ・余分に言った語は減点しない。お手本の語のうち、順番どおりに言えた語の割合を一致率にする
 /// </summary>
@@ -31,7 +31,7 @@ public static class ReadAloudMatcher
         var partsOfWord = new List<List<string>>();
         foreach (string raw in SplitWords(expected))
         {
-            var parts = Expand(Normalize(raw));
+            var parts = PartsOf(raw);
             if (parts.Count == 0) continue;   // 記号だけの語は数えない
             originals.Add(raw);
             partsOfWord.Add(parts);
@@ -50,7 +50,7 @@ public static class ReadAloudMatcher
         }
 
         var heardParts = new List<string>();
-        foreach (string raw in SplitWords(heard)) heardParts.AddRange(Expand(Normalize(raw)));
+        foreach (string raw in SplitWords(heard)) heardParts.AddRange(PartsOf(raw));
 
         bool[] partMatched = LongestCommonSubsequence(expectedParts, heardParts);
 
@@ -74,6 +74,18 @@ public static class ReadAloudMatcher
     {
         if (string.IsNullOrWhiteSpace(text)) yield break;
         foreach (string w in text.Split((char[])null, StringSplitOptions.RemoveEmptyEntries)) yield return w;
+    }
+
+    // ハイフン・ダッシュ (well-known, think—honestly) は語の区切り。音声認識は分けて返すため
+    private static readonly char[] Dashes = { '-', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212' };
+
+    /// <summary>1 語 (空白区切り) を、比べるための部分語に分ける。記号だけなら空</summary>
+    private static List<string> PartsOf(string raw)
+    {
+        var parts = new List<string>();
+        foreach (string piece in raw.Split(Dashes, StringSplitOptions.RemoveEmptyEntries))
+            parts.AddRange(Expand(Normalize(piece)));
+        return parts;
     }
 
     /// <summary>小文字にし、英字・数字・アポストロフィ以外を取り除く</summary>
