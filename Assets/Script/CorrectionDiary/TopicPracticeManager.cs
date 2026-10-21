@@ -35,6 +35,8 @@ public class TopicPracticeManager : MonoBehaviour
     [Header("Practice")]
     [Tooltip("考える時間 (秒)。「Start now」で早めに話し始められる")]
     [SerializeField] private int thinkSeconds = 60;
+    [Tooltip("話した答えは録音して Gemini で文字起こしする (正確。途中の文字は出ない)。オフにすると端末の音声認識 (途中の文字が出るが、区切りで言葉が抜けやすい)")]
+    [SerializeField] private bool transcribeAnswerWithGemini = true;
     [SerializeField] private string speechLanguage = "en-US";
 
     [Header("Discord (要約練習と同じチャンネル。空なら ApiSecrets.json の値)")]
@@ -363,10 +365,10 @@ public class TopicPracticeManager : MonoBehaviour
         _busy = true;
         try
         {
-            if (!await StartListeningAsync()) { SetState(State.Idle); return; }
+            if (!await StartListeningAsync(forAnswer: true)) { SetState(State.Idle); return; }
             _endTime = Time.realtimeSinceStartup + TopicCatalog.SecondsFor(_topic.kind);
             SetState(State.Speaking);
-            SetStatus(_useNative ? "Speak now!" : "Speak now! (No live text in this mode)");
+            SetStatus(_useNative ? "Speak now!" : "Speak now! Your answer is recorded and written out when you finish.");
         }
         finally
         {
@@ -375,10 +377,15 @@ public class TopicPracticeManager : MonoBehaviour
         }
     }
 
-    /// <summary>聞き取りを始める (内蔵の音声認識。使えなければ録音)。始められたら true</summary>
-    private async Task<bool> StartListeningAsync()
+    /// <summary>
+    /// 聞き取りを始める。始められたら true。
+    /// 答え (forAnswer) は録音して Gemini で文字起こしする: 端末の音声認識は数秒の無音で切れ、
+    /// 再開するまでの間の言葉が抜けるため、長く話すと文が欠けて点数が下がる。
+    /// 言い直し (1 文) は端末の音声認識ですぐ結果を出す。使えなければどちらも録音。
+    /// </summary>
+    private async Task<bool> StartListeningAsync(bool forAnswer = false)
     {
-        _useNative = nativeStt.IsAvailable;
+        _useNative = nativeStt.IsAvailable && !(forAnswer && transcribeAnswerWithGemini);
         if (!await recorder.RequestPermissionAsync())
         {
             SetStatus("Microphone permission denied. Please allow it in Settings.");
