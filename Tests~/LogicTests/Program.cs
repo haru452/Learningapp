@@ -35,6 +35,9 @@ public static class LogicTests
         PcmAudioTests();
         TimeStretchTests();
         AudioCacheTests();
+        RepeatTtsTests();
+        RepeatRpcTests();
+        RepeatDiscordTests();
 
         if (_failed > 0)
         {
@@ -151,6 +154,71 @@ public static class LogicTests
         var delBig = AudioCachePolicy.ToDelete(big);
         Check(delBig.Count == 1 && delBig[0] == "old", "cache: over 60 MB -> delete oldest until under");
         Check(AudioCachePolicy.ToDelete(new List<(string, long, DateTime)>()).Count == 0, "cache: empty");
+    }
+
+    private static void RepeatTtsTests()
+    {
+        string body = GeminiApiClient.TtsRequestBody("He said \"hi\".", "Leda");
+        JsonDocument doc = null;
+        try { doc = JsonDocument.Parse(body); } catch (Exception e) { Check(false, "tts body is JSON: " + e.Message); }
+        if (doc != null)
+        {
+            var cfg = doc.RootElement.GetProperty("generationConfig");
+            Check(cfg.GetProperty("responseModalities")[0].GetString() == "AUDIO", "tts body asks for AUDIO");
+            Check(cfg.GetProperty("speechConfig").GetProperty("voiceConfig").GetProperty("prebuiltVoiceConfig")
+                     .GetProperty("voiceName").GetString() == "Leda", "tts body voice name");
+            string text = doc.RootElement.GetProperty("contents")[0].GetProperty("parts")[0].GetProperty("text").GetString();
+            Check(text.EndsWith("He said \"hi\"."), "tts body keeps the sentence: " + text);
+        }
+
+        string resp = "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"audio/L16;codec=pcm;rate=24000\",\"data\":\"" +
+                      Convert.ToBase64String(new byte[] { 1, 2, 3, 4 }) + "\"}}]}}]}";
+        var pcm = GeminiApiClient.ExtractInlineAudio(resp);
+        Check(pcm != null && pcm.SequenceEqual(new byte[] { 1, 2, 3, 4 }), "tts: audio extracted from response");
+        Check(GeminiApiClient.ExtractInlineAudio("{\"candidates\":[]}") == null, "tts: no audio -> null");
+
+        var day = new DateTime(2026, 10, 22, 23, 0, 0);
+        Check(TtsQuotaGate.IsBlocked(day, new DateTime(2026, 10, 23, 2, 59, 0)), "quota: blocked until 3:00 next morning");
+        Check(!TtsQuotaGate.IsBlocked(day, new DateTime(2026, 10, 23, 3, 0, 0)), "quota: free again at 3:00");
+        Check(!TtsQuotaGate.IsBlocked(DateTime.MinValue, day), "quota: never blocked");
+    }
+
+    private static void RepeatRpcTests()
+    {
+        var results = new List<RepeatResult>
+        {
+            new RepeatResult { sentence = "Say \"hi\".", heard = "say hi", accuracy = 100, replays = 2, source = "tatoeba", voice = "human", tatoebaId = 5, audioId = 9 },
+            new RepeatResult { sentence = "Own one here.", heard = "", accuracy = 60, replays = 0, source = "diary", voice = "gemini" },
+        };
+        string json = RepeatRpc.ResultsJson(results);
+        var arr = JsonDocument.Parse(json).RootElement;
+        Check(arr.GetArrayLength() == 2, "rpc: 2 results");
+        Check(arr[0].GetProperty("sentence").GetString() == "Say \"hi\"." && arr[0].GetProperty("tatoeba_id").GetInt64() == 5
+              && arr[0].GetProperty("audio_id").GetInt64() == 9 && arr[0].GetProperty("replays").GetInt32() == 2, "rpc: snake_case keys");
+        Check(arr[1].GetProperty("audio_id").ValueKind == JsonValueKind.Null, "rpc: no audio id -> null");
+
+        string body = "[{\"sentence\":\"I went home today.\",\"source\":\"tatoeba\",\"missed\":true,\"tatoeba_id\":5,\"audio_id\":9}," +
+                      "{\"sentence\":\"She cooked dinner for us.\",\"source\":\"diary\",\"missed\":false,\"tatoeba_id\":null,\"audio_id\":null}]";
+        var rows = RepeatRpc.ParseSentences(body);
+        Check(rows.Count == 2 && rows[0].Missed && rows[0].AudioId == 9 && rows[0].HasHumanAudio, "rpc: missed tatoeba row");
+        Check(rows.Count == 2 && !rows[1].Missed && rows[1].Source == "diary" && rows[1].AudioId == null && !rows[1].HasHumanAudio, "rpc: own row");
+        Check(RepeatRpc.ParseSentences("oops").Count == 0, "rpc: broken -> empty");
+    }
+
+    private static void RepeatDiscordTests()
+    {
+        var results = new List<RepeatResult>
+        {
+            new RepeatResult { sentence = "I went to the station yesterday.", heard = "i went to the station yesterday", accuracy = 100 },
+            new RepeatResult { sentence = "Could you send me the file by Friday?", heard = "could you send me file friday", accuracy = 60 },
+        };
+        string m = DiscordClient.RepeatMessage(new DateTime(2026, 10, 22, 17, 40, 0), results);
+        Check(m.StartsWith("\U0001F501 **Repeat practice - 2026-10-22 17:40**"), "repeat discord header: " + m);
+        Check(m.Contains("Average: 80%"), "repeat discord average");
+        Check(m.Contains("\u2705 100%  I went to the station yesterday."), "repeat discord ok line");
+        Check(m.Contains("\u26A0\uFE0F  60%  Could you send me the file by Friday?") && m.Contains("(heard: could you send me file friday)"),
+            "repeat discord missed line with heard");
+        Check(!m.Split('\n').First(l => l.Contains("station")).Contains("heard"), "repeat discord: no heard on ok lines");
     }
 
     private static void MistakeTypeTests()

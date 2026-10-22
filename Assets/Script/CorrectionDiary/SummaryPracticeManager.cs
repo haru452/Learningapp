@@ -154,7 +154,7 @@ public class SummaryPracticeManager : MonoBehaviour
         // 要約練習のキー (無ければ日記のキー) を使い、上限 (429) になったら日記・お題スピーキングのキーを借りる
         string summaryKey = ApiSecrets.Pick(secrets.geminiSummaryApiKey, geminiApiKey);
         _gemini = new GeminiApiClient(summaryKey, geminiModel, geminiFallbackModel,
-            backupApiKeys: new[] { geminiApiKey, secrets.geminiTopicApiKey });
+            backupApiKeys: new[] { geminiApiKey, secrets.geminiTopicApiKey, secrets.geminiTtsApiKey });
         _youtube = new YouTubeSearchClient(youtubeApiKey);
         _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
     }

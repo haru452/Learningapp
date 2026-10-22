@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 /// <summary>
@@ -144,6 +145,40 @@ public class DiscordClient
             if (i < chunks.Count - 1)
                 await Task.Delay(500);   // レート制限対策
         }
+    }
+
+    /// <summary>リピーティング 1 回分 (5 文) の結果を送る。長いときは分けて送る</summary>
+    public async Task SendRepeatResultsAsync(DateTime date, IList<RepeatResult> results)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("Discord is not configured.");
+        List<string> chunks = Split(RepeatMessage(date, results), MaxMessageLength);
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            await PostAsync(chunks[i]);
+            if (i < chunks.Count - 1)
+                await Task.Delay(500);   // レート制限対策
+        }
+    }
+
+    /// <summary>リピーティングのメッセージ: 平均と、文ごとの一致率 (80% 以上 ✅、未満 ⚠️ と聞き取れた文)</summary>
+    public static string RepeatMessage(DateTime date, IList<RepeatResult> results)
+    {
+        results = results ?? new List<RepeatResult>();
+        int average = results.Count == 0 ? 0
+            : (int)Math.Round(results.Average(r => r.accuracy), MidpointRounding.AwayFromZero);
+        var sb = new System.Text.StringBuilder();
+        sb.Append("\U0001F501 **Repeat practice - ").Append(date.ToString("yyyy-MM-dd HH:mm")).Append("**\n")
+          .Append("Average: ").Append(average).Append("%\n");
+        foreach (var r in results)
+        {
+            bool ok = r.accuracy >= 80;
+            sb.Append(ok ? "\u2705" : "\u26A0\uFE0F").Append(' ')
+              .Append(r.accuracy.ToString().PadLeft(3)).Append("%  ").Append((r.sentence ?? "").Trim());
+            if (!ok && !string.IsNullOrWhiteSpace(r.heard)) sb.Append("   (heard: ").Append(r.heard.Trim()).Append(')');
+            sb.Append('\n');
+        }
+        return sb.ToString().TrimEnd();
     }
 
     /// <summary>発音チェックで Gemini からもらったアドバイスを送る (1 メッセージ)</summary>

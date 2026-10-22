@@ -566,10 +566,14 @@ public class GeminiApiClient
     /// 一時的なエラー (500/503) は待ってリトライ (1秒→2秒) し、それでも失敗したら予備モデルに切り替える。
     /// 利用上限 (429) やモデル名の間違い (404) のときは、リトライせずにすぐ予備モデルに切り替える。
     /// </summary>
-    private async Task<string> PostWithRetryAsync(string body, int timeoutSeconds = DefaultTimeoutSeconds)
+    private Task<string> PostWithRetryAsync(string body, int timeoutSeconds = DefaultTimeoutSeconds) =>
+        PostToModelsAsync(body, new[] { _model, _fallbackModel }, timeoutSeconds);
+
+    private async Task<string> PostToModelsAsync(string body, string[] models, int timeoutSeconds)
     {
         var keys = UsableKeys;
-        var order = AttemptOrder(keys.ToArray(), new[] { _model, _fallbackModel });
+        if (keys.Count == 0) throw new InvalidOperationException("Gemini API key is not set.");
+        var order = AttemptOrder(keys.ToArray(), models);
 
         HttpException lastError = null;
 
@@ -603,6 +607,55 @@ public class GeminiApiClient
 
         throw lastError;
     }
+
+    // ------------------------------------------------------------
+    // 読み上げ (Gemini の音声合成)
+    // ------------------------------------------------------------
+
+    /// <summary>読み上げのリクエスト (返事を音声で、指定した声で)</summary>
+    public static string TtsRequestBody(string text, string voice) =>
+        "{\"contents\":[{\"parts\":[" + TextPart("Say this naturally and clearly: " + (text ?? "")) + "]}]," +
+        "\"generationConfig\":{\"responseModalities\":[\"AUDIO\"]," +
+        "\"speechConfig\":{\"voiceConfig\":{\"prebuiltVoiceConfig\":{\"voiceName\":\"" +
+        HttpUtil.JsonEscape(string.IsNullOrWhiteSpace(voice) ? "Leda" : voice.Trim()) + "\"}}}}}";
+
+    /// <summary>返事の inlineData.data (base64) を取り出す。無ければ null</summary>
+    public static byte[] ExtractInlineAudio(string response)
+    {
+        if (string.IsNullOrEmpty(response)) return null;
+        int i = response.IndexOf("\"inlineData\"", StringComparison.Ordinal);
+        if (i < 0) i = response.IndexOf("\"inline_data\"", StringComparison.Ordinal);
+        if (i < 0) return null;
+        int d = response.IndexOf("\"data\"", i, StringComparison.Ordinal);
+        if (d < 0) return null;
+        int start = response.IndexOf('"', response.IndexOf(':', d) + 1);
+        int end = start < 0 ? -1 : response.IndexOf('"', start + 1);
+        if (start < 0 || end < 0) return null;
+        try { return Convert.FromBase64String(response.Substring(start + 1, end - start - 1)); }
+        catch (FormatException) { return null; }
+    }
+
+    /// <summary>
+    /// 文を読み上げた音声 (PCM 16bit・24kHz・モノラル) を返す。キーはこのクライアントのキー → 借りるキーの順。
+    /// どのキーも利用上限 (429) なら GeminiQuotaException
+    /// </summary>
+    public async Task<byte[]> SynthesizeSpeechAsync(string text, string voice, string ttsModel)
+    {
+        string response;
+        try
+        {
+            response = await PostToModelsAsync(TtsRequestBody(text, voice), new[] { ttsModel }, DefaultTimeoutSeconds);
+        }
+        catch (HttpException e) when (e.StatusCode == 429)
+        {
+            throw new GeminiQuotaException(e.Message);
+        }
+        var pcm = ExtractInlineAudio(response);
+        if (pcm == null || pcm.Length < 2) throw new Exception("Gemini returned no audio.");
+        return pcm;
+    }
+
+    public const int TtsSampleRate = 24000;
 
     private Task<string> GenerateAsync(byte[] wav, string prompt, string schemaJson)
     {
@@ -659,4 +712,10 @@ public class GeminiApiClient
 
         return text;
     }
+}
+
+/// <summary>Gemini の利用上限 (429) にどのキーも達していた</summary>
+public class GeminiQuotaException : Exception
+{
+    public GeminiQuotaException(string message) : base(message) { }
 }

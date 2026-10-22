@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -492,6 +493,75 @@ public class SupabaseService : MonoBehaviour
     }
 
     // ------------------------------------------------------------
+    // リピーティング
+    // ------------------------------------------------------------
+    /// <summary>リピーティング 1 回分の結果を保存する (最大 10 文)。保存した件数を返す</summary>
+    public async Task<int> SaveRepeatResultsAsync(IList<RepeatResult> results, DateTime takenAtUtc)
+    {
+        string takenAt = takenAtUtc.ToUniversalTime()
+            .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        string body = await RpcAsync("save_repeat_results",
+            ",\"p_results\":" + RepeatRpc.ResultsJson(results) + ",\"p_taken_at\":\"" + takenAt + "\"");
+        return int.TryParse((body ?? "").Trim(), out int n) ? n : 0;
+    }
+
+    /// <summary>次の練習に出す文 (言えなかった文と自分の添削文)。ログインしていない・失敗したら空</summary>
+    public async Task<List<RepeatSentence>> GetRepeatSentencesAsync(int missed = 2, int own = 2)
+    {
+        try
+        {
+            if (!await EnsureSignedInAsync()) return new List<RepeatSentence>();
+            string body = await RpcAsync("get_my_repeat_sentences", ",\"p_missed\":" + missed + ",\"p_own\":" + own);
+            return RepeatRpc.ParseSentences(body);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Supabase] could not get repeat sentences: " + e.Message);
+            return new List<RepeatSentence>();
+        }
+    }
+
+    private bool _uploadingPendingRepeat;
+
+    /// <summary>端末に一時保存されているリピーティングの結果を、古い順に送る。送れた回数を返す</summary>
+    public async Task<int> UploadPendingRepeatResultsAsync()
+    {
+        if (_uploadingPendingRepeat || !IsSignedIn) return 0;
+        _uploadingPendingRepeat = true;
+        int uploaded = 0;
+        try
+        {
+            var list = PendingRepeatStore.Load();
+            while (list.Count > 0 && IsSignedIn)
+            {
+                var batch = list[0];
+                try
+                {
+                    await SaveRepeatResultsAsync(batch.results, batch.TakenAtUtc);
+                    uploaded++;
+                }
+                catch (SupabaseException e) when (e.StatusCode == 400)
+                {
+                    Debug.LogWarning("[Supabase] dropped pending repeat results that cannot be saved: " + e.Message);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning("[Supabase] could not upload pending repeat results now: " + e.Message);
+                    break;
+                }
+                list.RemoveAt(0);
+                PendingRepeatStore.Save(list);
+            }
+        }
+        finally
+        {
+            _uploadingPendingRepeat = false;
+        }
+        if (uploaded > 0) Debug.Log($"[Supabase] uploaded {uploaded} repeat practice(s) done before signing in.");
+        return uploaded;
+    }
+
+    // ------------------------------------------------------------
     // ログイン前に受けたお題スピーキングの結果を、ログインしたときにまとめて送る
     // ------------------------------------------------------------
     private bool _uploadingPendingTopic;
@@ -617,6 +687,7 @@ public class SupabaseService : MonoBehaviour
             AuthChanged?.Invoke();
             _ = UploadPendingSummaryResultsAsync();   // ログイン前に受けた要約練習の結果を送る (待たない)
             _ = UploadPendingTopicResultsAsync();     // ログイン前に受けたお題スピーキングの結果も送る (待たない)
+            _ = UploadPendingRepeatResultsAsync();    // リピーティングの結果も (待たない)
         }
     }
 

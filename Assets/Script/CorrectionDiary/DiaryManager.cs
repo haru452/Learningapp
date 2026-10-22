@@ -133,7 +133,7 @@ public class DiaryManager : MonoBehaviour
         
         // 上限 (429) になったら、要約練習・お題スピーキングのキーを借りる
         _gemini = new GeminiApiClient(geminiApiKey, geminiModel, geminiFallbackModel,
-            backupApiKeys: new[] { ApiSecrets.Data.geminiSummaryApiKey, ApiSecrets.Data.geminiTopicApiKey });
+            backupApiKeys: new[] { ApiSecrets.Data.geminiSummaryApiKey, ApiSecrets.Data.geminiTopicApiKey, ApiSecrets.Data.geminiTtsApiKey });
         _deepl = new DeepLApiClient(deeplApiKey, deeplUseFreeApi, deeplTargetLang);
         _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
         _reminder = new ReminderClient(reminderWorkerUrl, reminderSecret);

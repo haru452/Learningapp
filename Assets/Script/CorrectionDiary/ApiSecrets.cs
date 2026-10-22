@@ -17,6 +17,7 @@ public class ApiSecrets
     public string geminiApiKey;          // 日記
     public string geminiSummaryApiKey;   // 要約練習
     public string geminiTopicApiKey;     // お題スピーキング
+    public string geminiTtsApiKey;       // リピーティングの読み上げ (Gemini の声)
     public string deeplApiKey;
     public string discordWebhookUrl;
     public string discordBotToken;
@@ -30,6 +31,8 @@ public class ApiSecrets
     public string summaryDiscordChannelId;    // Webhook の代わりに Bot で送る場合のチャンネルID
     public string pronunciationDiscordWebhookUrl;   // お題スピーキングの発音チェックのアドバイスを送る Webhook (別のチャンネル)
     public string pronunciationDiscordChannelId;    // Webhook の代わりに Bot で送る場合のチャンネルID
+    public string repeatDiscordWebhookUrl;          // リピーティングの結果を送る Webhook (別のチャンネル)
+    public string repeatDiscordChannelId;           // Webhook の代わりに Bot で送る場合のチャンネルID
 
     private const string ResourceName = "ApiSecrets";
     private static ApiSecrets _data;

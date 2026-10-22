@@ -168,7 +168,7 @@ public class TopicPracticeManager : MonoBehaviour
         // お題スピーキングのキー (無ければ日記のキー) を使い、上限 (429) になったら日記・要約練習のキーを借りる
         string topicKey = ApiSecrets.Pick(secrets.geminiTopicApiKey, geminiApiKey);
         _gemini = new GeminiApiClient(topicKey, geminiModel, geminiFallbackModel,
-            backupApiKeys: new[] { geminiApiKey, secrets.geminiSummaryApiKey });
+            backupApiKeys: new[] { geminiApiKey, secrets.geminiSummaryApiKey, secrets.geminiTtsApiKey });
         _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
 
         pronunciationWebhookUrl = ApiSecrets.Pick(secrets.pronunciationDiscordWebhookUrl, pronunciationWebhookUrl);
