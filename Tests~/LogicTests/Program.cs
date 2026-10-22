@@ -30,6 +30,11 @@ public static class LogicTests
         PronunciationMessageTests();
         TopicCatalogTests();
         MistakesJsonTests();
+        RepeatSetTests();
+        TatoebaCatalogTests();
+        PcmAudioTests();
+        TimeStretchTests();
+        AudioCacheTests();
 
         if (_failed > 0)
         {
@@ -38,6 +43,114 @@ public static class LogicTests
         }
         Console.WriteLine("ALL LOGIC TESTS PASSED");
         return 0;
+    }
+
+    // ---------------- リピーティング ----------------
+    private static RepeatSentence RS(string text, string source = "tatoeba", bool missed = false) =>
+        new RepeatSentence { Text = text, Source = source, Missed = missed };
+
+    private static List<RepeatSentence> Many(string prefix, int n, string source) =>
+        Enumerable.Range(1, n).Select(i => RS(prefix + " sentence number " + i + ".", source)).ToList();
+
+    private static void RepeatSetTests()
+    {
+        var missed = Many("Missed", 3, "diary").Select(r => { r.Missed = true; return r; }).ToList();
+        var own = Many("Own", 3, "topic");
+        var tatoeba = Many("Tatoeba", 10, "tatoeba");
+        var set = RepeatSetBuilder.Build(missed, own, tatoeba, new HashSet<string>(), new Random(1));
+        Check(set.Count == 5, "repeat set: 5 sentences (" + set.Count + ")");
+        Check(set.Take(2).All(r => r.Missed), "repeat set: first 2 are missed");
+        Check(set.Count(r => r.Missed) == 2, "repeat set: at most 2 missed");
+        Check(set.Count(r => r.Source == "topic") <= 2, "repeat set: at most 2 own");
+        Check(set.Count(r => r.Source == "tatoeba") >= 1, "repeat set: rest from tatoeba");
+
+        var noTatoeba = RepeatSetBuilder.Build(missed, own, new List<RepeatSentence>(), new HashSet<string>(), new Random(1));
+        Check(noTatoeba.Count == 4, "repeat set: no tatoeba -> missed + own only (" + noTatoeba.Count + ")");
+
+        var dupOwn = new List<RepeatSentence> { RS("I went to the park today.", "diary") };
+        var dupTat = new List<RepeatSentence> { RS("i went to the PARK today", "tatoeba"), RS("She has a big black dog.") };
+        var dup = RepeatSetBuilder.Build(new List<RepeatSentence>(), dupOwn, dupTat, new HashSet<string>(), new Random(2));
+        Check(dup.Count == 2 && dup.Count(r => RepeatSetBuilder.Key(r.Text) == "i went to the park today") == 1,
+            "repeat set: same sentence (case/punctuation) only once");
+
+        var recent = new HashSet<string> { RepeatSetBuilder.Key("Tatoeba sentence number 1.") };
+        var fresh = RepeatSetBuilder.Build(new List<RepeatSentence>(), new List<RepeatSentence>(), tatoeba, recent, new Random(3));
+        Check(fresh.All(r => r.Text != "Tatoeba sentence number 1."), "repeat set: avoids recent tatoeba");
+        var fewTat = new List<RepeatSentence> { RS("Only this one is here today.") };
+        var forced = RepeatSetBuilder.Build(new List<RepeatSentence>(), new List<RepeatSentence>(), fewTat,
+            new HashSet<string> { RepeatSetBuilder.Key("Only this one is here today.") }, new Random(3));
+        Check(forced.Count == 1, "repeat set: uses a recent sentence when nothing else is left");
+
+        var a1 = RepeatSetBuilder.Build(missed, own, tatoeba, new HashSet<string>(), new Random(9)).Select(r => r.Text);
+        var a2 = RepeatSetBuilder.Build(missed, own, tatoeba, new HashSet<string>(), new Random(9)).Select(r => r.Text);
+        Check(a1.SequenceEqual(a2), "repeat set: same seed, same order");
+        Check(RepeatSetBuilder.Key("  She HAS two-cats! ") == "she has twocats", "repeat key matches SQL _sentence_key");
+    }
+
+    private static void TatoebaCatalogTests()
+    {
+        string json = "{\"sentences\":[{\"id\":5,\"audioId\":77,\"text\":\"Don't \\\"go\\\" there, \\u00e9.\",\"author\":\"CK\",\"license\":\"CC BY-NC-ND 3.0\"}," +
+                      "{\"id\":6,\"audioId\":78,\"text\":\"Second one here.\",\"author\":\"RB\",\"license\":\"CC BY 4.0\"}]}";
+        var list = TatoebaCatalog.Parse(json);
+        Check(list.Count == 2, "tatoeba: 2 sentences (" + list.Count + ")");
+        if (list.Count == 2)
+        {
+            Check(list[0].Text == "Don't \"go\" there, \u00e9." && list[0].TatoebaId == 5 && list[0].AudioId == 77, "tatoeba: fields and escapes");
+            Check(list[0].Author == "CK" && list[0].License == "CC BY-NC-ND 3.0" && list[0].Source == "tatoeba", "tatoeba: author/license/source");
+        }
+        Check(TatoebaCatalog.Parse("{}").Count == 0, "tatoeba: {} -> empty");
+        Check(TatoebaCatalog.Parse("not json").Count == 0, "tatoeba: broken -> empty");
+        Check(TatoebaCatalog.Parse(null).Count == 0, "tatoeba: null -> empty");
+    }
+
+    private static void PcmAudioTests()
+    {
+        var f = PcmAudio.Pcm16ToFloats(new byte[] { 0x00, 0x80, 0xFF, 0x7F });
+        Check(f.Length == 2 && f[0] == -1f && Math.Abs(f[1] - 32767f / 32768f) < 1e-6, "pcm16 -> floats");
+        byte[] wav = PcmAudio.ToWav(new float[2400], 1, 24000);
+        Check(wav.Length == 44 + 4800 && System.Text.Encoding.ASCII.GetString(wav, 0, 4) == "RIFF", "wav header and size");
+        Check(BitConverter.ToInt32(wav, 24) == 24000 && BitConverter.ToInt16(wav, 22) == 1, "wav sample rate and channels");
+    }
+
+    private static int ZeroCrossings(float[] x)
+    {
+        int n = 0;
+        for (int i = 1; i < x.Length; i++) if ((x[i - 1] < 0) != (x[i] < 0)) n++;
+        return n;
+    }
+
+    private static void TimeStretchTests()
+    {
+        const int rate = 16000;
+        var sine = Enumerable.Range(0, rate).Select(i => (float)Math.Sin(2 * Math.PI * 440 * i / rate)).ToArray();
+        var slow = TimeStretch.Stretch(sine, rate, 0.75);
+        double seconds = slow.Length / (double)rate;
+        Check(Math.Abs(seconds - 1 / 0.75) < 0.02 * (1 / 0.75), "stretch: length x1.33 (" + seconds + " s)");
+        // 始めと終わりの 0.1 秒を除いた部分で、ゼロ交差から周波数を出す
+        var mid = slow.Skip(rate / 10).Take(slow.Length - rate / 5).ToArray();
+        double hz = ZeroCrossings(mid) / 2.0 / (mid.Length / (double)rate);
+        Check(Math.Abs(hz - 440) < 440 * 0.03, "stretch: pitch kept (" + hz + " Hz)");
+        Check(TimeStretch.Stretch(new float[0], rate, 0.75).Length == 0, "stretch: empty");
+        Check(TimeStretch.Stretch(sine, rate, 1.0).Length == sine.Length, "stretch: speed 1 keeps length");
+    }
+
+    private static void AudioCacheTests()
+    {
+        Check(AudioCachePolicy.TatoebaName(1234) == "tatoeba_1234.mp3", "cache: tatoeba name");
+        string g1 = AudioCachePolicy.GeminiName("I went home.", "Leda");
+        Check(g1 == AudioCachePolicy.GeminiName("I went home.", "Leda"), "cache: same text+voice -> same name");
+        Check(g1 != AudioCachePolicy.GeminiName("I went home!", "Leda") && g1 != AudioCachePolicy.GeminiName("I went home.", "Kore"),
+            "cache: different text or voice -> different name");
+        Check(g1.EndsWith(".wav") && g1.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '.'), "cache: safe file name " + g1);
+
+        var t0 = new DateTime(2026, 10, 1);
+        var files = Enumerable.Range(0, 301).Select(i => ("f" + i, 1000L, t0.AddMinutes(i))).ToList();
+        var del = AudioCachePolicy.ToDelete(files);
+        Check(del.Count == 1 && del[0] == "f0", "cache: over 300 files -> delete the oldest");
+        var big = new List<(string, long, DateTime)> { ("old", 40L << 20, t0), ("mid", 15L << 20, t0.AddDays(1)), ("new", 10L << 20, t0.AddDays(2)) };
+        var delBig = AudioCachePolicy.ToDelete(big);
+        Check(delBig.Count == 1 && delBig[0] == "old", "cache: over 60 MB -> delete oldest until under");
+        Check(AudioCachePolicy.ToDelete(new List<(string, long, DateTime)>()).Count == 0, "cache: empty");
     }
 
     private static void MistakeTypeTests()
