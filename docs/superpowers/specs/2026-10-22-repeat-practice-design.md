@@ -22,11 +22,12 @@
 | 練習の形 | リピーティング (1 文を聞き終わってから言い返す)。シャドーイングはしない |
 | 文の出どころ | ① 前回言えなかった文 → ② 自分の添削文 (日記・要約・お題、直近 30 日) → ③ 足りなければ Gemini → ④ 通信できなければアプリ内のリスト |
 | 英文の表示 | 聞く間は隠す。言い終わったら出し、言えた単語は緑・抜けた単語は赤 |
-| 聞き直し | 「もう一度」「ゆっくり (0.75 倍)」を何度でも。回数を記録する |
+| 読み上げの声 | Gemini の音声合成 (TTS) で人に近い声。女性の若い声 `Leda` (Inspector で変えられる)。失敗・上限のときは端末の読み上げ |
+| 聞き直し | 「もう一度」「ゆっくり」を何度でも。回数を記録する |
 | 1 回の練習 | 5 文 |
 | 「言えなかった」の基準 | 一致率 80% 未満 |
 | 記録 | Supabase に保存。連続記録・カレンダーに数える。Web に専用ページ |
-| Gemini のキー | リピーティング専用の 4 つ目のキー `geminiRepeatApiKey` (空なら日記のキー)。上限 (429) ならほかの 3 つを借りる |
+| Gemini のキー | 文を作る用に 4 つ目のキー `geminiRepeatApiKey`、読み上げの音声用に 5 つ目のキー `geminiTtsApiKey` (どちらも空なら日記のキー)。上限 (429) ならほかのキーを借りる |
 | Discord | 専用のチャンネル (`repeatDiscordWebhookUrl` / `repeatDiscordChannelId`) |
 | カレンダーの色 | 1 種類はその色 (日記=オレンジ、要約=青、お題=緑、リピーティング=ピンク)、2 種類=銅、3 種類=銀、4 つ全部=金。今の紫はなくなる |
 
@@ -55,15 +56,28 @@ Idle ──Start──▶ Preparing (文を集める) ──▶ Listening (読�
 ```
 
 - **Start**: 5 文を準備する (下の「文の選び方」)。準備中は「Preparing...」。
-- **Listening**: 端末の読み上げ (`AndroidTts("en", "US")`) で 1 文を読む。英文は出さず「🎧 Listen (1 / 5)」だけ出す。
-- **Ready**: ボタンは「🔁 Again」「🐢 Slow」「🎤 Speak」。Again は普通の速さ、Slow は 0.75 倍で読み直す。どちらも聞き直し回数に数える。
+- **Listening**: 1 文を読み上げる (下の「読み上げの声」)。英文は出さず「🎧 Listen (1 / 5)」だけ出す。
+- **Ready**: ボタンは「🔁 Again」「🐢 Slow」「🎤 Speak」。Again は普通の速さ、Slow はゆっくり読み直す。どちらも聞き直し回数に数える。
 - **Speaking**: 端末の音声認識 (お題の言い直しと同じ) で聞き取る。「Stop」で終わる。何も聞き取れなかったら 0% にせず「聞き取れなかったので、もう一度 Speak を押してください」と出して Ready に戻る。
 - **Result**: 英文を大きく、枠で囲んで出す (お題の言い直しと同じ枠)。言えた単語は緑、抜けた単語は赤、その下に一致率と「(heard: ...)」。ボタンは「🔁 Again」(もう一度聞く)「🎤 Try again」(もう一度言う。新しい結果で上書き)「Next」。
 - **Summary**: 平均の一致率、文ごとの一致率、80% 未満の文の一覧。ボタンは「Start」(次の 5 文)。結果の保存と Discord 送信はここで行う (5 文まとめて)。
 - 照合は `ReadAloudMatcher` をそのまま使う (大文字小文字・句読点を無視、縮約形を展開、ハイフンで区切る)。
 - 読み上げや音声認識の途中でほかのタブへ移ったら中断して Idle に戻る (それまでに終わった文は捨てる)。Summary まで行った結果の保存は、画面を移っても続ける。
-- TTS が使えない端末 (エディタ / iOS) では、Start を押すと「この端末では読み上げが使えません」と出す (エディタではダミーの TTS で流れだけ確かめられる)。
+- Gemini の音声も端末の読み上げも使えないとき (エディタ / iOS で通信できない など) は「読み上げができません」と出して Idle に戻る。
 - 音声認識が使えない端末では、お題と同じく録音して Gemini で書き起こす (1 文ごとに 1 回使う)。
+
+### 読み上げの声 (Gemini TTS)
+
+- Gemini の音声合成モデル (Inspector `ttsModel`、初期値 `gemini-3.8-flash-tts`) に、声 `Leda` (Inspector `ttsVoice`) で文を読ませる。
+  返ってくる音声 (PCM 16bit・24kHz・モノラル) を Unity の `AudioClip` にして `AudioSource` で流す。
+- **ゆっくり**: 🐢 を押したときだけ「Say slowly and clearly: 〜」と頼んで別に作る (速さを変えて再生すると声の高さが変わるため)。
+- **保存して使い回す**: 作った音声は端末に保存する (`Application.persistentDataPath/repeat_audio/`、文・声・速さから作った名前の WAV)。
+  同じ文の聞き直しや、次回の「言えなかった文」では保存したものを使い、Gemini を呼ばない。保存は最大 200 個・50 MB まで (古いものから消す)。
+- **先に作っておく**: 次の文の音声は、今の文を練習している間に作っておく。
+- **使うキー**: `ApiSecrets.geminiTtsApiKey` (空なら `geminiApiKey`)。上限 (429) ならほかのキー (日記 → 要約 → お題 → リピーティング) を借りる
+  (読み上げの上限もプロジェクトごとなので、別プロジェクトのキーなら枠が増える)。
+- **失敗・上限のとき**: 端末の読み上げ (`AndroidTts("en", "US")`、ゆっくりは速さ 0.75) で流す。画面に小さく「(device voice)」と出す。練習は止めない。
+- Gemini の上限に達したら、その日のうちは Gemini の読み上げを呼ばずに端末の読み上げを使う (無駄な呼び出しをしない。日付は夜 3 時区切り)。
 
 ### 文の選び方 (アプリ側)
 
@@ -79,7 +93,7 @@ Idle ──Start──▶ Preparing (文を集める) ──▶ Listening (読�
 - 新しい関数 `GenerateRepeatSentencesAsync(int count)`: 中級の学習者向けに、日常・仕事でよく使う 6〜15 語の自然な英文を `count` 個作らせる。返り値は `{ "sentences": [string] }` (JSON スキーマで固定)。
 - 使うキー: `ApiSecrets.geminiRepeatApiKey` (空なら `geminiApiKey`)。上限 (429) ならほかのキーを `geminiApiKey` → `geminiSummaryApiKey` → `geminiTopicApiKey` の順に借りる。
   日記・要約・お題の画面も、上限のときに借りるキーの最後に `geminiRepeatApiKey` を足す。
-- `ApiSecrets.example.json` に `geminiRepeatApiKey`、`repeatDiscordWebhookUrl`、`repeatDiscordChannelId` を足す。
+- `ApiSecrets.example.json` に `geminiRepeatApiKey`、`geminiTtsApiKey`、`repeatDiscordWebhookUrl`、`repeatDiscordChannelId` を足す。
 
 ### 保存
 
@@ -159,7 +173,8 @@ Average: 84%
 ## 4. テスト
 
 - SQL (`supabase/tests/repeat_test.sql`): 保存と範囲の丸め、ほかの人の結果が見えない、直接書き込めない、500 件の上限、文の分け方と語数の条件、80% 未満が先に出る・80% 以上になったら出ない・直近 7 日の文が出ない、`repeat` の日が連続記録とカレンダーに入る、4 種類の制約、`topic.sql` を後から実行し直しても壊れない。
-- アプリのロジック (`Tests~/LogicTests`): `RepeatCatalog` (30 文以上、6〜15 語、重複なし)、文の重複除き、Discord の文の作り方、Gemini のスキーマが正しい JSON。
+- アプリのロジック (`Tests~/LogicTests`): `RepeatCatalog` (30 文以上、6〜15 語、重複なし)、文の重複除き、Discord の文の作り方、Gemini のスキーマが正しい JSON、
+  読み上げ用のリクエストの形 (声の名前・音声で返す指定)、PCM から WAV への変換、保存ファイルの名前 (同じ文・声・速さなら同じ名前)、保存の上限で古いものから消す順番。
 - Web (`tests/web_test.py`): リピーティングのページ (統計・グラフ・苦手な文・使い方)、カレンダーの銅・銀・金・ピンク、文が HTML として入らない。
 - 画面の動き (読み上げ・音声認識・タブ移動) は自動テストができないので、Unity のコンパイルを通したうえで実機で確かめる。
 
@@ -168,4 +183,5 @@ Average: 84%
 - シャドーイング (音を流しながら同時に話す)。
 - 録音の保存。
 - リピーティングでの Gemini の発音チェック (お題の言い直しにはある)。
-- iOS の読み上げ対応 (今のアプリは Android 用の TTS しかない)。
+- 本物の人の録音 (添削から作る文は毎回違うため)。
+- iOS の端末の読み上げ (Gemini の音声は iOS でも流れるが、失敗したときの代わりは Android だけ)。
