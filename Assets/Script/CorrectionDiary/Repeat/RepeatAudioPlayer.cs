@@ -152,16 +152,7 @@ public class RepeatAudioPlayer : MonoBehaviour
 
         if (_clips.TryGetValue(key, out AudioClip clip) && clip != null)
         {
-            _source.clip = slow ? GetSlowClip(key, clip) : clip;
-            _source.Play();
-            // 再生が始まるのを少し待ってから、終わるまで待つ
-            float start = Time.realtimeSinceStartup;
-            while (!_source.isPlaying && Time.realtimeSinceStartup - start < 0.5f) { ct.ThrowIfCancellationRequested(); await Task.Yield(); }
-            while (_source != null && _source.isPlaying)
-            {
-                if (ct.IsCancellationRequested) { _source.Stop(); ct.ThrowIfCancellationRequested(); }
-                await Task.Yield();
-            }
+            await PlayClipAsync(slow ? GetSlowClip(key, clip) : clip, ct);
             return;
         }
 
@@ -172,6 +163,50 @@ public class RepeatAudioPlayer : MonoBehaviour
         // 端末の読み上げが無い (エディタ・iOS): 音を出せないので、言い返す練習にならない
         throw new RepeatAudioUnavailableException("no voice could be played");
 #endif
+    }
+
+    /// <summary>用意した AudioClip を流して、終わるまで待つ (シャドーイング・自分の声)</summary>
+    public async Task PlayClipAsync(AudioClip clip, CancellationToken ct)
+    {
+        if (clip == null) throw new RepeatAudioUnavailableException("no audio");
+        ct.ThrowIfCancellationRequested();
+        _source.clip = clip;
+        _source.Play();
+        // 再生が始まるのを少し待ってから、終わるまで待つ
+        float start = Time.realtimeSinceStartup;
+        while (!_source.isPlaying && Time.realtimeSinceStartup - start < 0.5f) { ct.ThrowIfCancellationRequested(); await Task.Yield(); }
+        while (_source != null && _source.isPlaying)
+        {
+            if (ct.IsCancellationRequested) { _source.Stop(); ct.ThrowIfCancellationRequested(); }
+            await Task.Yield();
+        }
+    }
+
+    /// <summary>長い音声 (番組) の start〜end 秒を切り出した AudioClip を作る (モノラル)。slow なら 0.75 倍</summary>
+    public static AudioClip MakeSegment(AudioClip full, double start, double end, bool slow)
+    {
+        if (full == null) return null;
+        int freq = full.frequency, ch = full.channels;
+        int from = Math.Max(0, Math.Min(full.samples - 1, (int)(start * freq)));
+        int to = Math.Max(from + 1, Math.Min(full.samples, (int)(end * freq)));
+        int length = to - from;
+        var data = new float[length * ch];
+        if (!full.GetData(data, from)) return null;
+        float[] mono = data;
+        if (ch > 1)
+        {
+            mono = new float[length];
+            for (int i = 0; i < length; i++)
+            {
+                float sum = 0;
+                for (int c = 0; c < ch; c++) sum += data[i * ch + c];
+                mono[i] = sum / ch;
+            }
+        }
+        if (slow) mono = TimeStretch.Stretch(mono, freq, SlowSpeed);
+        var clip = AudioClip.Create("segment", mono.Length, 1, freq, false);
+        clip.SetData(mono, 0);
+        return clip;
     }
 
     public void Stop()
@@ -272,7 +307,7 @@ public class RepeatAudioPlayer : MonoBehaviour
         return result;
     }
 
-    private static async Task<AudioClip> LoadClipAsync(string path, AudioType type)
+    internal static async Task<AudioClip> LoadClipAsync(string path, AudioType type)
     {
         using (var req = UnityWebRequestMultimedia.GetAudioClip(new Uri(path).AbsoluteUri, type))
         {

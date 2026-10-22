@@ -83,6 +83,12 @@ public class RepeatPracticeManager : MonoBehaviour
     private string _partial = "";
     private bool _stopping;
 
+    // シャドーイング (Shadowing スイッチがオンのとき)
+    private ShadowUi _shadowUi;
+    private ShadowSession _shadow;
+    private bool _shadowShown;
+    private bool ShadowMode => _shadowUi != null && _shadowUi.ShadowOn;
+
     // ------------------------------------------------------------
     // Lifecycle
     // ------------------------------------------------------------
@@ -113,8 +119,8 @@ public class RepeatPracticeManager : MonoBehaviour
     private void Start()
     {
         mainButton.onClick.AddListener(OnMainClicked);
-        if (againButton != null) againButton.onClick.AddListener(() => _ = ReplayAsync(false));
-        if (slowButton != null) slowButton.onClick.AddListener(() => _ = ReplayAsync(true));
+        if (againButton != null) againButton.onClick.AddListener(() => { if (ShadowMode) _shadow.OnAgain(); else _ = ReplayAsync(false); });
+        if (slowButton != null) slowButton.onClick.AddListener(() => { if (ShadowMode) _shadow.OnSlow(); else _ = ReplayAsync(true); });
         if (speakButton != null) speakButton.onClick.AddListener(OnSpeakClicked);
         nativeStt.OnPartialResult += OnNativePartial;
         nativeStt.OnSessionEnded += OnNativeSessionEnded;
@@ -127,6 +133,59 @@ public class RepeatPracticeManager : MonoBehaviour
         SetLoading(false);
         SetState(State.Idle);
         SetStatus("Tap \"Start\". Listen to a sentence, then say it back.");
+
+        _shadowUi = new ShadowUi(mainButton, statusText);
+        _shadow = new ShadowSession(new ShadowSession.View
+            {
+                MainButton = mainButton, MainLabel = mainButtonLabel, SpeakButton = speakButton, SpeakLabel = speakButtonLabel,
+                AgainButton = againButton, SlowButton = slowButton, Header = headerText, Sentence = sentenceText,
+                Result = resultText, Status = statusText, Credit = creditText, Loading = loadingIndicator, Ui = _shadowUi,
+            },
+            player, recorder, _gemini, SaveAsync, SendShadowToDiscordAsync,
+            () => { var d = FindDiary(); if (d != null) d.CountOtherPracticeAsStudyDay(); });
+        _shadowUi.Changed += ApplyMode;
+        _shadow.StateChanged += RefreshModeButtons;
+        ApplyMode();
+    }
+
+    // Shadowing のオン・オフ (切り替えられるのは練習していないときだけ)
+    private void ApplyMode()
+    {
+        if (ShadowMode == _shadowShown && _shadowShown) return;   // Slow だけ変わった
+        if (ShadowMode)
+        {
+            _shadowShown = true;
+            ShowSentence(null);
+            _shadow.ShowIdle();
+        }
+        else
+        {
+            bool wasShadow = _shadowShown;
+            _shadowShown = false;
+            if (!wasShadow && _state != State.Idle) return;   // 画面を開いたとき (リピーティングのまま)
+            SetButtonLabel(againButton, "Again");
+            SetButtonLabel(slowButton, "Slow");
+            ShowSentence(null);
+            SetText(resultText, "");
+            SetText(headerText, "Repeat");
+            SetText(creditText, "");
+            SetLoading(false);
+            SetState(State.Idle);
+            SetStatus("Tap \"Start\". Listen to a sentence, then say it back.");
+        }
+        RefreshModeButtons();
+    }
+
+    private void RefreshModeButtons()
+    {
+        if (_shadowUi == null) return;
+        _shadowUi.SetInteractable(ShadowMode ? _shadow.CanSwitchMode : _state == State.Idle || _state == State.Summary);
+    }
+
+    private static void SetButtonLabel(Button b, string text)
+    {
+        var t = b != null ? b.GetComponentInChildren<TMP_Text>(true) : null;
+        if (t != null) t.text = text;
     }
 
     private void OnDestroy()
@@ -143,6 +202,7 @@ public class RepeatPracticeManager : MonoBehaviour
     // ほかのタブへ移ったら止める (まとめまで行った結果の保存は続ける)
     private void OnDisable()
     {
+        if (ShadowMode) { _shadow.Cancel(); return; }
         if (_state == State.Idle || _state == State.Summary) return;
         _cts?.Cancel();
         player?.Stop();
@@ -157,6 +217,7 @@ public class RepeatPracticeManager : MonoBehaviour
     // ------------------------------------------------------------
     private async void OnMainClicked()
     {
+        if (ShadowMode) { _shadow.OnMain(); return; }
         switch (_state)
         {
             case State.Idle:
@@ -172,6 +233,7 @@ public class RepeatPracticeManager : MonoBehaviour
 
     private async void OnSpeakClicked()
     {
+        if (ShadowMode) { _shadow.OnSpeak(); return; }
         if (_state == State.Ready || _state == State.Result) await StartSpeakingAsync();
         else if (_state == State.Speaking) await StopSpeakingAsync();
     }
@@ -517,6 +579,21 @@ public class RepeatPracticeManager : MonoBehaviour
         }
     }
 
+    private async Task<string> SendShadowToDiscordAsync(string episodeTitle, List<RepeatResult> results)
+    {
+        if (!sendToDiscord || !_discord.IsConfigured) return null;
+        try
+        {
+            await _discord.SendShadowResultsAsync(DateTime.Now, episodeTitle, results);
+            return null;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Shadow] Discord failed: " + e.Message);
+            return FirstLine(e.Message);
+        }
+    }
+
     private async Task<string> SendToDiscordAsync(List<RepeatResult> results)
     {
         if (!sendToDiscord || !_discord.IsConfigured) return null;
@@ -552,6 +629,7 @@ public class RepeatPracticeManager : MonoBehaviour
         }
         if (speakButtonLabel != null)
             speakButtonLabel.text = state == State.Speaking ? "Stop" : state == State.Result ? "Try again" : "Speak";
+        RefreshModeButtons();
     }
 
     private void ShowCredit(RepeatSentence s)

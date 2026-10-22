@@ -51,7 +51,9 @@ public static class ShadowChunker
         return chunks;
     }
 
-    /// <summary>1 かたまりを流して録音し終えるまでの長さ (秒)</summary>
+    public const double SlowSpeed = 0.75;     // Slow のとき (RepeatAudioPlayer.SlowSpeed と同じ)
+
+    /// <summary>1 かたまりを流して録音し終えるまでの長さ (秒)。Slow でも収まるように、ゆっくり流したときの長さで数える</summary>
     public static double Duration(IList<Line> chunk, double audioSeconds)
     {
         double total = 0;
@@ -60,7 +62,7 @@ public static class ShadowChunker
             var w = Window(l, audioSeconds);
             total += Math.Max(l.End - l.Start + 2 * Pad, w.end - w.start);
         }
-        return total + Gap * Math.Max(0, chunk.Count - 1) + Tail;
+        return total / SlowSpeed + Gap * Math.Max(0, chunk.Count - 1) + Tail;
     }
 
     public static (double start, double end) Window(Line l, double audioSeconds) =>

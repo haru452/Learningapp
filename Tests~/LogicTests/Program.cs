@@ -285,6 +285,8 @@ public static class LogicTests
             "chunk: bad times, 3 words, 21 words and past-the-end lines dropped");
         var longOnes = Enumerable.Range(0, 5).Select(i => SL(six + " " + i + ".", i * 13.0, i * 13.0 + 12.0)).ToList();
         Check(ShadowChunker.Chunk(longOnes, 70).Count == 0, "chunk: over 55 s (recorder limit) not used");
+        var slowLong = Enumerable.Range(0, 5).Select(i => SL(six + " " + i + ".", i * 8.0, i * 8.0 + 7.6)).ToList();
+        Check(ShadowChunker.Chunk(slowLong, 70).Count == 0, "chunk: too long when played slow (0.75x) not used");
         var w = ShadowChunker.Window(SL(six, 1.0, 2.0), 2.1);
         Check(Math.Abs(w.start - 0.8) < 1e-9 && Math.Abs(w.end - 2.1) < 1e-9, "chunk: window pads 0.2 s within the audio");
         var parsed = ShadowChunker.ParseGemini("{\"sentences\":[{\"text\":\"a b c d\",\"speaker\":\"Neil\",\"start\":1.5,\"end\":3.25}]}");
