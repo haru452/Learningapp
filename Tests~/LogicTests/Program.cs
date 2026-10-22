@@ -225,8 +225,21 @@ public static class LogicTests
         double twoSec = PcmAudio.TrimTrailingNoise(twoWords, rate).Length / (double)rate;
         Check(twoSec >= 1.75, "trim: second word after a pause kept (" + twoSec + " s)");
 
+        // 間 (0.25 秒) のあとの、小さく短い最後の言葉 (0.3 秒、声の 1/6 の大きさ) は切らない
+        var softWord = Enumerable.Range(0, rate * 3 / 10).Select(i => (float)(0.08 * Math.Sin(2 * Math.PI * 150 * i / rate)));
+        var softEnd = speech.Concat(new float[rate / 4]).Concat(softWord).Concat(new float[rate / 5]).ToArray();
+        double softSec = PcmAudio.TrimTrailingNoise(softEnd, rate).Length / (double)rate;
+        Check(softSec >= 1.55, "trim: soft short last word after a pause kept (" + softSec + " s)");
+
+        // 声がだんだん小さくなって終わる (最後の 0.4 秒は声の 1/10) のも切らない
+        var fading = Enumerable.Range(0, rate * 4 / 10).Select(i => (float)(0.05 * Math.Sin(2 * Math.PI * 200 * i / rate)));
+        var fadeEnd = speech.Concat(fading).ToArray();
+        double fadeSec = PcmAudio.TrimTrailingNoise(fadeEnd, rate).Length / (double)rate;
+        Check(fadeSec >= 1.39, "trim: quiet end of the voice kept (" + fadeSec + " s)");
+
         var clean = speech.ToArray();
-        Check(PcmAudio.TrimTrailingNoise(clean, rate).Length >= clean.Length - rate / 50, "trim: clean audio keeps its length");
+        var cleanOut = PcmAudio.TrimTrailingNoise(clean, rate);
+        Check(cleanOut.Length == clean.Length && cleanOut[clean.Length - 1] == clean[clean.Length - 1], "trim: clean audio unchanged");
         var quiet = new float[rate];
         Check(PcmAudio.TrimTrailingNoise(quiet, rate).Length == rate, "trim: all quiet -> unchanged");
         Check(PcmAudio.TrimTrailingNoise(new float[0], rate).Length == 0, "trim: empty");
