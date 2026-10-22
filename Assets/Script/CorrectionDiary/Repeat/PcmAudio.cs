@@ -14,6 +14,41 @@ public static class PcmAudio
         return f;
     }
 
+    /// <summary>
+    /// 声が終わった後の「ザー」という雑音を切る (Gemini の音声の最後に付くことがある)。
+    /// 20 ms ごとの音の大きさを見て、いちばん大きいところの 15% を超える最後の位置 + 120 ms までを残し、
+    /// 最後の 30 ms を小さくしていく (プツッと切れないように)。全部小さい音なら、そのまま返す
+    /// </summary>
+    public static float[] TrimTrailingNoise(float[] samples, int sampleRate)
+    {
+        if (samples == null || samples.Length == 0) return new float[0];
+        int win = Math.Max(1, sampleRate / 50);
+        int windows = (samples.Length + win - 1) / win;
+        var rms = new double[windows];
+        double peak = 0;
+        for (int w = 0; w < windows; w++)
+        {
+            int start = w * win, end = Math.Min(samples.Length, start + win);
+            double sum = 0;
+            for (int i = start; i < end; i++) sum += samples[i] * (double)samples[i];
+            rms[w] = Math.Sqrt(sum / (end - start));
+            peak = Math.Max(peak, rms[w]);
+        }
+        if (peak < 0.01) return (float[])samples.Clone();
+
+        int last = 0;
+        for (int w = windows - 1; w >= 0; w--)
+            if (rms[w] >= peak * 0.15) { last = w; break; }
+        int length = Math.Min(samples.Length, (last + 1) * win + sampleRate * 120 / 1000);
+
+        var result = new float[length];
+        Array.Copy(samples, result, length);
+        int fade = Math.Min(length, sampleRate * 30 / 1000);
+        for (int i = 0; i < fade; i++)
+            result[length - fade + i] *= (float)(fade - 1 - i) / Math.Max(1, fade - 1);
+        return result;
+    }
+
     /// <summary>float のサンプルを 16bit PCM の WAV ファイルにする</summary>
     public static byte[] ToWav(float[] samples, int channels, int sampleRate)
     {

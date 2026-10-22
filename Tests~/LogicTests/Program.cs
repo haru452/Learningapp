@@ -37,6 +37,7 @@ public static class LogicTests
         AudioCacheTests();
         RepeatTtsTests();
         RepeatRpcTests();
+        TrimNoiseTests();
         RepeatDiscordTests();
 
         if (_failed > 0)
@@ -154,6 +155,9 @@ public static class LogicTests
         var delBig = AudioCachePolicy.ToDelete(big);
         Check(delBig.Count == 1 && delBig[0] == "old", "cache: over 60 MB -> delete oldest until under");
         Check(AudioCachePolicy.ToDelete(new List<(string, long, DateTime)>()).Count == 0, "cache: empty");
+        Check(AudioCachePolicy.IsOutdated("gemini_0123456789abcdef0123.wav"), "cache: old Gemini audio is outdated");
+        Check(!AudioCachePolicy.IsOutdated(AudioCachePolicy.GeminiName("Hi there you.", "Leda")), "cache: current Gemini audio kept");
+        Check(!AudioCachePolicy.IsOutdated("tatoeba_123.mp3"), "cache: Tatoeba audio kept");
     }
 
     private static void RepeatTtsTests()
@@ -168,7 +172,7 @@ public static class LogicTests
             Check(cfg.GetProperty("speechConfig").GetProperty("voiceConfig").GetProperty("prebuiltVoiceConfig")
                      .GetProperty("voiceName").GetString() == "Leda", "tts body voice name");
             string text = doc.RootElement.GetProperty("contents")[0].GetProperty("parts")[0].GetProperty("text").GetString();
-            Check(text.EndsWith("He said \"hi\"."), "tts body keeps the sentence: " + text);
+            Check(text == "He said \"hi\".", "tts body sends only the sentence (no instruction to be read aloud): " + text);
         }
 
         string resp = "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"audio/L16;codec=pcm;rate=24000\",\"data\":\"" +
@@ -181,6 +185,27 @@ public static class LogicTests
         Check(TtsQuotaGate.IsBlocked(day, new DateTime(2026, 10, 23, 2, 59, 0)), "quota: blocked until 3:00 next morning");
         Check(!TtsQuotaGate.IsBlocked(day, new DateTime(2026, 10, 23, 3, 0, 0)), "quota: free again at 3:00");
         Check(!TtsQuotaGate.IsBlocked(DateTime.MinValue, day), "quota: never blocked");
+    }
+
+    private static void TrimNoiseTests()
+    {
+        const int rate = 24000;
+        // 1 秒の声 (サイン波) のあとに 0.5 秒の「ザー」(小さなノイズ)
+        var rnd = new Random(1);
+        var speech = Enumerable.Range(0, rate).Select(i => (float)(0.5 * Math.Sin(2 * Math.PI * 220 * i / rate)));
+        var hiss = Enumerable.Range(0, rate / 2).Select(_ => (float)((rnd.NextDouble() * 2 - 1) * 0.03));
+        var input = speech.Concat(hiss).ToArray();
+        var trimmed = PcmAudio.TrimTrailingNoise(input, rate);
+        double sec = trimmed.Length / (double)rate;
+        Check(sec >= 1.0 && sec <= 1.2, "trim: trailing hiss removed (" + sec + " s)");
+        Check(Math.Abs(trimmed[trimmed.Length - 1]) < 0.01f, "trim: ends with a fade out");
+        Check(Math.Abs(trimmed[rate / 2] - input[rate / 2]) < 1e-6, "trim: speech untouched");
+
+        var clean = speech.ToArray();
+        Check(PcmAudio.TrimTrailingNoise(clean, rate).Length >= clean.Length - rate / 50, "trim: clean audio keeps its length");
+        var quiet = new float[rate];
+        Check(PcmAudio.TrimTrailingNoise(quiet, rate).Length == rate, "trim: all quiet -> unchanged");
+        Check(PcmAudio.TrimTrailingNoise(new float[0], rate).Length == 0, "trim: empty");
     }
 
     private static void RepeatRpcTests()

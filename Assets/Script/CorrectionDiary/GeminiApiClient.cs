@@ -612,9 +612,12 @@ public class GeminiApiClient
     // 読み上げ (Gemini の音声合成)
     // ------------------------------------------------------------
 
-    /// <summary>読み上げのリクエスト (返事を音声で、指定した声で)</summary>
+    /// <summary>
+    /// 読み上げのリクエスト (返事を音声で、指定した声で)。文だけを送る
+    /// (「Say this clearly:」のような指示を付けると、それも読み上げてしまうため)
+    /// </summary>
     public static string TtsRequestBody(string text, string voice) =>
-        "{\"contents\":[{\"parts\":[" + TextPart("Say this naturally and clearly: " + (text ?? "")) + "]}]," +
+        "{\"contents\":[{\"parts\":[" + TextPart((text ?? "").Trim()) + "]}]," +
         "\"generationConfig\":{\"responseModalities\":[\"AUDIO\"]," +
         "\"speechConfig\":{\"voiceConfig\":{\"prebuiltVoiceConfig\":{\"voiceName\":\"" +
         HttpUtil.JsonEscape(string.IsNullOrWhiteSpace(voice) ? "Leda" : voice.Trim()) + "\"}}}}}";

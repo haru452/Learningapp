@@ -50,6 +50,22 @@ public class RepeatAudioPlayer : MonoBehaviour
 #endif
         try { _deviceTts.Init(); }
         catch (Exception e) { Debug.LogWarning("[RepeatAudio] device TTS init failed: " + e.Message); }
+        DeleteOutdatedFiles();
+    }
+
+    // 前の作り方で保存した Gemini の音声 (指示を読み上げていた・最後に雑音があった) を消す
+    private static void DeleteOutdatedFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(CacheDir)) return;
+            foreach (var f in new DirectoryInfo(CacheDir).GetFiles())
+                if (AudioCachePolicy.IsOutdated(f.Name)) TryDelete(f.FullName);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[RepeatAudio] could not remove old audio: " + e.Message);
+        }
     }
 
     private void OnDestroy()
@@ -233,7 +249,8 @@ public class RepeatAudioPlayer : MonoBehaviour
         }
 
         byte[] pcm = await _gemini.SynthesizeSpeechAsync(text, _ttsVoice, _ttsModel);
-        float[] samples = PcmAudio.Pcm16ToFloats(pcm);
+        // 最後に付くことがある「ザー」という雑音を切ってから保存する
+        float[] samples = PcmAudio.TrimTrailingNoise(PcmAudio.Pcm16ToFloats(pcm), GeminiApiClient.TtsSampleRate);
         File.WriteAllBytes(path, PcmAudio.ToWav(samples, 1, GeminiApiClient.TtsSampleRate));
         EvictOldFiles();
         var clip = AudioClip.Create("gemini_tts", samples.Length, 1, GeminiApiClient.TtsSampleRate, false);
