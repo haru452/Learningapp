@@ -157,7 +157,7 @@ public class ShadowSession
             Debug.LogWarning("[Shadow] could not prepare: " + e);
             if (ct.IsCancellationRequested) return;
             SetLoading(false);
-            ShowIdle(PrepareFailedMessage);
+            ShowIdle(PrepareFailedMessage + "\n<size=70%>(" + Escape(FirstLine(e.Message)) + ")</size>");
             return;
         }
         SetLoading(false);

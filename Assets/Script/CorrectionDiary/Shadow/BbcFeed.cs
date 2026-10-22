@@ -44,7 +44,7 @@ public static class BbcFeed
                     Id = id,
                     Title = (item["title"]?.InnerText ?? "").Trim(),
                     Published = ParseDate(item["pubDate"]?.InnerText),
-                    AudioUrl = url,
+                    AudioUrl = Secure(url),
                 });
             }
         }
@@ -53,6 +53,14 @@ public static class BbcFeed
             return new List<Episode>();
         }
         return list.OrderByDescending(e => e.Published).ToList();
+    }
+
+    // Android は http を通さない (Unity の設定も「許可しない」) ので https にする。
+    // BBC の音声の URL は ".../proto/http/vpid/..." の形で、ここも https にしないと転送先が http になる
+    public static string Secure(string url)
+    {
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) url = "https://" + url.Substring(7);
+        return url.Replace("/proto/http/", "/proto/https/");
     }
 
     // guid の最後の区切り (: か /) より後ろ。ファイル名に使えない文字は除く

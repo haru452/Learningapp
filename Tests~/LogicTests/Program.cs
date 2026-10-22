@@ -266,6 +266,11 @@ public static class LogicTests
             Check(eps[1].Id == "p0aaaa" && eps[0].Id == "b_file", "feed: id from guid, else file name (" + eps[1].Id + ", " + eps[0].Id + ")");
             Check(eps[1].AudioUrl == "https://example.com/x/a.mp3", "feed: audio url");
         }
+        string httpRss = "<rss><channel><item><title>T</title><guid>urn:x:p0bbbb</guid>" +
+            "<enclosure url=\"http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss/proto/http/vpid/p0cccc.mp3\"/></item></channel></rss>";
+        var hp = BbcFeed.Parse(httpRss);
+        Check(hp.Count == 1 && hp[0].AudioUrl == "https://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss/proto/https/vpid/p0cccc.mp3",
+              "feed: http audio url made https (Android blocks http): " + (hp.Count > 0 ? hp[0].AudioUrl : "none"));
         Check(BbcFeed.Parse("<rss><broken").Count == 0, "feed: broken xml -> empty");
         Check(BbcFeed.Parse(null).Count == 0, "feed: null -> empty");
 
