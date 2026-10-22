@@ -39,6 +39,7 @@ public class ShadowSession
 
     public State Current { get; private set; } = State.Idle;
     public bool CanSwitchMode => Current == State.Idle || Current == State.Summary;
+    public bool IsRunning => Current != State.Idle && Current != State.Summary;
     public event Action StateChanged;
 
     private readonly View _v;
@@ -135,8 +136,9 @@ public class ShadowSession
         // 1. 次の 5 文
         try
         {
-            _chunk = await ShadowEpisodeStore.NextChunkAsync(_gemini, SetStatus, ct);
+            var chunk = await ShadowEpisodeStore.NextChunkAsync(_gemini, s => { if (!ct.IsCancellationRequested) SetStatus(s); }, ct);
             if (ct.IsCancellationRequested) return;
+            _chunk = chunk;
             ClearSegments();
             bool slow = _v.Ui != null && _v.Ui.SlowOn;
             foreach (var line in _chunk.Lines)
@@ -286,7 +288,7 @@ public class ShadowSession
         _countStudyDay?.Invoke();
         string saveNote = await _save(results, DateTime.UtcNow);
         string discordError = await _sendDiscord(_chunk.Episode.Title, results);
-        if (Current != State.Summary) return;
+        if (Current != State.Summary || _v.Ui == null || !_v.Ui.ShadowOn) return;   // もう次の練習・リピーティングに移った
         SetStatus((saveNote ?? "Saved.") + (discordError == null ? "" : "  Discord failed: " + discordError) +
                   "  \"My voice\" / \"Original\" to compare. \"Start\" for the next 5.");
     }

@@ -498,10 +498,7 @@ public class SupabaseService : MonoBehaviour
     /// <summary>リピーティング 1 回分の結果を保存する (最大 10 文)。保存した件数を返す</summary>
     public async Task<int> SaveRepeatResultsAsync(IList<RepeatResult> results, DateTime takenAtUtc)
     {
-        string takenAt = takenAtUtc.ToUniversalTime()
-            .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
-        string body = await RpcAsync("save_repeat_results",
-            ",\"p_results\":" + RepeatRpc.ResultsJson(results) + ",\"p_taken_at\":\"" + takenAt + "\"");
+        string body = await RpcAsync("save_repeat_results", RepeatRpc.SaveArgs(results, takenAtUtc));
         return int.TryParse((body ?? "").Trim(), out int n) ? n : 0;
     }
 

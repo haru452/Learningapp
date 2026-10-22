@@ -212,6 +212,12 @@ public class RepeatPracticeManager : MonoBehaviour
         SetStatus("Cancelled. Tap \"Start\" to try again.");
     }
 
+    // 電話・ほかのアプリへの切り替えでシャドーイングが止まったら、録音を捨てて最初から (保存しない)
+    private void OnApplicationPause(bool paused)
+    {
+        if (paused && ShadowMode && _shadow.IsRunning) _shadow.Cancel("Interrupted. Tap \"Start\" to try again.");
+    }
+
     // ------------------------------------------------------------
     // Buttons
     // ------------------------------------------------------------

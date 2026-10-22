@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 /// <summary>Supabase のリピーティング用 RPC に送る JSON を作り、返ってきた行を読む</summary>
@@ -29,6 +30,18 @@ public static class RepeatRpc
             }
         }
         return sb.Append(']').ToString();
+    }
+
+    /// <summary>
+    /// save_repeat_results に足す引数 (p_timezone はあとで足される)。
+    /// シャドーイングの結果を含むときは p_version 2 を付ける: mode 列の無い古いサーバーは「関数が無い」で失敗し、
+    /// 結果は端末に一時保存される (リピーティングと間違えて保存されない)
+    /// </summary>
+    public static string SaveArgs(IList<RepeatResult> results, DateTime takenAtUtc)
+    {
+        string takenAt = takenAtUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+        bool shadow = results != null && results.Any(r => r != null && r.mode == "shadow");
+        return ",\"p_results\":" + ResultsJson(results) + ",\"p_taken_at\":\"" + takenAt + "\"" + (shadow ? ",\"p_version\":2" : "");
     }
 
     /// <summary>get_my_repeat_sentences の結果を読む。読めなければ空</summary>

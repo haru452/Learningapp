@@ -34,6 +34,8 @@ public static class ShadowEpisodeStore
         public string currentId = "";
         public int nextChunk;
         public List<string> doneIds = new List<string>();
+        public string failedId = "";   // 用意に続けて失敗した回
+        public int failures;
     }
 
     private static string Dir => Path.Combine(Application.persistentDataPath, "shadow");
@@ -62,8 +64,24 @@ public static class ShadowEpisodeStore
                 SaveProgress(progress);
             }
 
-            AudioClip full = await LoadEpisodeAudioAsync(ep, status, ct);
-            string json = await LoadSegmentsAsync(ep, gemini, status, ct);
+            AudioClip full;
+            string json;
+            try
+            {
+                full = await LoadEpisodeAudioAsync(ep, status, ct);
+                json = await LoadSegmentsAsync(ep, gemini, status, ct);
+            }
+            catch (Exception e) when (ShadowFailure.CountsAgainstEpisode(e, Application.internetReachability != NetworkReachability.NotReachable))
+            {
+                // 同じ回で続けて失敗する (音声が消えた・Gemini が切り出さない) なら、その回を飛ばして次の回へ
+                progress.failures = progress.failedId == ep.Id ? progress.failures + 1 : 1;
+                progress.failedId = ep.Id;
+                if (!ShadowFailure.ShouldSkip(progress.failures)) { SaveProgress(progress); throw; }
+                Debug.LogWarning("[Shadow] episode " + ep.Id + " failed " + progress.failures + " times. Skipping it: " + e.Message);
+                MarkEpisodeDone(progress, ep.Id);
+                continue;
+            }
+            if (progress.failedId == ep.Id) { progress.failedId = ""; progress.failures = 0; SaveProgress(progress); }
             var chunks = ShadowChunker.Chunk(ShadowChunker.ParseGemini(json), full.length);
             if (progress.nextChunk < chunks.Count)
             {
@@ -157,10 +175,15 @@ public static class ShadowEpisodeStore
             TryDelete(path);   // 壊れたファイルは消して、次はダウンロードし直す
             throw;
         }
+        // キャンセルされていても使い回せるように覚えておく (古い回の音声はメモリから消す)
+        if (_clip != null && _clipId == ep.Id) { UnityEngine.Object.Destroy(clip); clip = _clip; }   // 同時に読み込んでいた
+        else
+        {
+            if (_clip != null) UnityEngine.Object.Destroy(_clip);
+            _clip = clip;
+            _clipId = ep.Id;
+        }
         ct.ThrowIfCancellationRequested();
-        if (_clip != null) UnityEngine.Object.Destroy(_clip);
-        _clip = clip;
-        _clipId = ep.Id;
         return clip;
     }
 
@@ -171,8 +194,8 @@ public static class ShadowEpisodeStore
         status?.Invoke("Finding the sentences in this episode (first time only, about a minute)...");
         byte[] audio = File.ReadAllBytes(Path.Combine(Dir, ep.Id + ".mp3"));
         string json = await gemini.SegmentEpisodeAsync(audio, "audio/mp3");
+        File.WriteAllText(path, json ?? "");   // 待っている間にタブを移っても、結果は保存して次に使う
         ct.ThrowIfCancellationRequested();
-        File.WriteAllText(path, json ?? "");
         return json;
     }
 
@@ -203,7 +226,7 @@ public static class ShadowEpisodeStore
         try
         {
             var p = JsonUtility.FromJson<Progress>(PlayerPrefs.GetString(ProgressKey, ""));
-            if (p != null) { p.doneIds = p.doneIds ?? new List<string>(); p.currentId = p.currentId ?? ""; return p; }
+            if (p != null) { p.doneIds = p.doneIds ?? new List<string>(); p.currentId = p.currentId ?? ""; p.failedId = p.failedId ?? ""; return p; }
         }
         catch (Exception) { }
         return new Progress();

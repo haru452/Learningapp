@@ -321,6 +321,18 @@ public static class LogicTests
         var rj = JsonDocument.Parse(RepeatRpc.ResultsJson(rows)).RootElement;
         Check(rj[0].GetProperty("mode").GetString() == "shadow" && rj[1].GetProperty("mode").GetString() == "repeat", "rpc: mode (empty -> repeat)");
 
+        string shadowArgs = RepeatRpc.SaveArgs(rows, new DateTime(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc));
+        string repeatArgs = RepeatRpc.SaveArgs(rows.Skip(1).ToList(), new DateTime(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc));
+        Check(shadowArgs.Contains("\"p_version\":2") && shadowArgs.Contains("\"p_taken_at\":\"2026-10-22T12:00:00Z\"")
+              && shadowArgs.StartsWith(",\"p_results\":["), "rpc: shadow save asks for the new function (old server fails -> kept on phone)");
+        Check(!repeatArgs.Contains("p_version") && repeatArgs.Contains("\"p_taken_at\""), "rpc: repeat-only save unchanged");
+
+        Check(ShadowFailure.CountsAgainstEpisode(new Exception("Gemini returned no result"), true), "fail: repeatable error counts");
+        Check(!ShadowFailure.CountsAgainstEpisode(new GeminiQuotaException("429"), true), "fail: quota does not count");
+        Check(!ShadowFailure.CountsAgainstEpisode(new OperationCanceledException(), true), "fail: cancel does not count");
+        Check(!ShadowFailure.CountsAgainstEpisode(new Exception("x"), false), "fail: offline does not count");
+        Check(!ShadowFailure.ShouldSkip(1) && ShadowFailure.ShouldSkip(2), "fail: skip the episode after 2 failures in a row");
+
         string sm = DiscordClient.ShadowMessage(new DateTime(2026, 10, 22, 21, 0, 0), "New one & more", rows);
         Check(sm.StartsWith("\U0001F3A7 **Shadowing - 2026-10-22 21:00**"), "shadow discord header: " + sm);
         Check(sm.Contains("6 Minute English: New one & more") && sm.Contains("Average: 75%") && sm.Contains("\u26A0\uFE0F  50%  We play soccer."),
