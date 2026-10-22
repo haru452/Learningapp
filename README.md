@@ -45,6 +45,32 @@
 - YouTube Data API の無料枠は 1 日 10,000 ユニットで、動画の検索 1 回に 100 ユニット使う（1 日に約 100 回まで出題できる）
 - Summary 画面は、Unity のメニュー **Tools → Summary Practice → Create Summary Screen** で、今のシーンに自動で組み立てられる（`Assets/Editor/SummaryScreenBuilder.cs`）
 
+### Repeat：リピーティング（聞いた英文を言い返す）
+- 1 回 5 文。英文は見せずに読み上げ、聞き終わったら同じ文を言い返す。言えた単語は緑・抜けた単語は赤で、一致率（%）を出す
+- 文の出どころ：前回 80% 未満だった文（最大 2）→ 自分の添削文（日記・要約・お題、直近 30 日、最大 2）→ 残りは [Tatoeba](https://tatoeba.org/) の文
+- 声：Tatoeba の文は**本物の人の録音**、自分の添削文は Gemini の音声合成（声 `Leda`）。失敗したときは端末の読み上げ
+- **Again** でもう一度、**Slow** で 0.75 倍（アプリの中で引き伸ばすので声の高さは変わらない）
+- 録音・作った音声は端末に保存して使い回す（最大 300 個・60 MB）
+- 結果はクラウドに保存され、Web 版の「リピーティング」で一致率の推移と苦手な文を見られる。Discord にも送れる（専用のチャンネル）
+- Repeat 画面は、Unity のメニュー **Tools → Repeat Practice → Create Repeat Screen** で組み立てる（`Assets/Editor/RepeatScreenBuilder.cs`）
+
+#### Tatoeba の文を入れる（最初に 1 回だけ）
+Tatoeba のデータは**著作権のため git に入れていません**（`.gitignore` 済み）。各自のパソコンで作ります。
+
+1. [Tatoeba のダウンロードページ](https://tatoeba.org/en/downloads) から次の 2 つを取ってきて、`Tools~/tatoeba/` に置く
+   - `eng_sentences.tsv.bz2`（Sentences → English）
+   - `sentences_with_audio.tar.bz2`
+2. 変換スクリプトで 1,000 文を選ぶ（`Assets/Resources/RepeatSentences.json` ができる）
+   ```
+   cd Tools~/tatoeba
+   python3 build_repeat_sentences.py --sentences eng_sentences.tsv.bz2 --audio sentences_with_audio.tar.bz2 --out ../../Assets/Resources/RepeatSentences.json --count 1000 --seed 42
+   ```
+   条件：録音とライセンスがある / 6〜15 語 / Tom・Mary が出てくる文は 15% まで（テスト：`python3 -m unittest test_build_repeat_sentences`）
+3. 録音は、練習で流すときにアプリが Tatoeba からダウンロードする
+
+> ⚠️ 文は CC BY 2.0 FR、録音は録音した人ごとのライセンス（主に CC BY-NC-ND）です。**個人の学習用（営利目的でない）でだけ**使ってください。アプリを有料で配ったり、録音を加工して配ったりはできません。画面に作者名を表示しています。
+> `RepeatSentences.json` が無いときは、自分の添削文と前回言えなかった文だけで練習します。
+
 ### Talk：3D キャラクターとの英会話（実験中）
 - VRM キャラクターと音声で会話（LLM は LLMUnity でスマホの中で動かす）
 - 返事は1文できるたびに読み上げ、口パク・うなずきも付く
@@ -83,6 +109,9 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 ```json
 {
   "geminiApiKey": "ここに Gemini のキー",
+  "geminiSummaryApiKey": "",
+  "geminiTopicApiKey": "",
+  "geminiTtsApiKey": "",
   "deeplApiKey": "ここに DeepL のキー",
   "discordWebhookUrl": "",
   "discordBotToken": "",
@@ -93,18 +122,25 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "supabaseAnonKey": "",
   "youtubeApiKey": "",
   "summaryDiscordWebhookUrl": "",
-  "summaryDiscordChannelId": ""
+  "summaryDiscordChannelId": "",
+  "pronunciationDiscordWebhookUrl": "",
+  "pronunciationDiscordChannelId": "",
+  "repeatDiscordWebhookUrl": "",
+  "repeatDiscordChannelId": ""
 }
 ```
 
 | 項目 | 取得先 | 必須 |
 |---|---|---|
 | geminiApiKey | [Google AI Studio](https://aistudio.google.com/apikey) | ✅ |
+| geminiSummaryApiKey / geminiTopicApiKey / geminiTtsApiKey | Google AI Studio（要約練習・お題・リピーティングの読み上げ用。**それぞれ別のプロジェクトで作る**と無料枠が増える） | 任意。空なら geminiApiKey。上限になったらほかのキーを借りる |
 | deeplApiKey | [DeepL API](https://www.deepl.com/pro-api) | DeepL Write を使う場合 |
 | youtubeApiKey | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)（YouTube Data API v3 を有効化） | 要約練習を使う場合 |
 | supabaseUrl / supabaseAnonKey | [Supabase](https://supabase.com/) | ログイン・日記保存を使う場合 |
 | discordWebhookUrl | Discord のサーバー設定 | 任意 |
 | summaryDiscordWebhookUrl | Discord のサーバー設定（要約練習の結果を送るチャンネルの Webhook。日記とは別） | 任意。空なら要約の結果は送らない |
+| pronunciationDiscordWebhookUrl | Discord（お題の発音チェックのアドバイスを送るチャンネル） | 任意 |
+| repeatDiscordWebhookUrl | Discord（リピーティングの結果を送るチャンネル） | 任意 |
 | reminderWorkerUrl / reminderSecret | 自前のリマインダー用 Worker | 任意 |
 
 > ⚠️ **注意**
