@@ -18,7 +18,9 @@ public static class PcmAudio
     /// 声が終わった後の「ザー」という雑音を切る (Gemini の音声の最後に付くことがある)。
     /// 20 ms ごとに、音の大きさと「波の向きが変わる回数」(ゼロ交差) を見る。
     /// 声 (母音) = 大きくて、向きが変わる回数が少ない。雑音 = 向きが細かく何度も変わる (大きくても雑音)。
-    /// 最後の声の位置 + 100 ms までを残し、最後の 60 ms を小さくしていく。声が見つからなければ、そのまま返す
+    /// 最後の声の位置 + 100 ms までを残し、最後の 60 ms を小さくしていく。声が見つからなければ、そのまま返す。
+    /// さらに、最後に 0.2 秒以上の無音のあと 0.4 秒以下の短い音だけがあるとき (声より大きい「ザッ」が実際にあった) は、
+    /// 文の一部ではないので、その無音の前で切る
     /// </summary>
     public static float[] TrimTrailingNoise(float[] samples, int sampleRate)
     {
@@ -46,11 +48,31 @@ public static class PcmAudio
         for (int w = 0; w < windows; w++) if (zcr[w] < NoiseZcr) peak = Math.Max(peak, rms[w]);
         if (peak < 0.01) return (float[])samples.Clone();
 
+        // 最後の「無音のあとの短い音」を取り除く (何回か続いていても)
+        int usable = windows;                  // ここより前の窓だけを見る
+        const int GapWindows = 10;             // 0.2 秒
+        const int BlipWindows = 20;            // 0.4 秒
+        for (int round = 0; round < 3; round++)
+        {
+            bool Silent(int w) => rms[w] < peak * 0.02;
+            int end = usable - 1;
+            while (end >= 0 && Silent(end)) end--;
+            if (end < 0) break;
+            int start = end;
+            while (start > 0 && !Silent(start - 1)) start--;
+            int gapEnd = start - 1, gapStart = gapEnd;
+            while (gapStart >= 0 && Silent(gapStart)) gapStart--;
+            int gap = gapEnd - gapStart;
+            bool somethingBefore = gapStart >= 0;
+            if (!(somethingBefore && end - start + 1 <= BlipWindows && gap >= GapWindows)) break;
+            usable = gapStart + 1;             // 無音の前まで
+        }
+
         int last = -1;
-        for (int w = windows - 1; w >= 0; w--)
+        for (int w = usable - 1; w >= 0; w--)
             if (zcr[w] < NoiseZcr && rms[w] >= peak * 0.15) { last = w; break; }
         if (last < 0) return (float[])samples.Clone();
-        int length = Math.Min(samples.Length, (last + 1) * win + sampleRate / 10);
+        int length = Math.Min(Math.Min(samples.Length, usable * win), (last + 1) * win + sampleRate / 10);
 
         var result = new float[length];
         Array.Copy(samples, result, length);

@@ -213,6 +213,18 @@ public static class LogicTests
         var keptS = PcmAudio.TrimTrailingNoise(withS, rate);
         Check(keptS.Length >= rate + rate * 7 / 100, "trim: final 's' sound kept (" + keptS.Length / (double)rate + " s)");
 
+        // 実際にあった形: 声 → 0.4 秒の無音 → 0.15 秒の大きな「ザッ」(声より大きい) → 無音
+        var burst = Enumerable.Range(0, rate * 15 / 100).Select(_ => (float)((rnd.NextDouble() * 2 - 1) * 0.6));
+        var withBurst = speech.Concat(new float[rate * 4 / 10]).Concat(burst).Concat(new float[rate / 10]).ToArray();
+        double burstSec = PcmAudio.TrimTrailingNoise(withBurst, rate).Length / (double)rate;
+        Check(burstSec <= 1.2, "trim: isolated noise burst after a pause removed (" + burstSec + " s)");
+
+        // 間をあけて続く 2 つ目の言葉 (0.5 秒の声) は消さない
+        var word2 = Enumerable.Range(0, rate / 2).Select(i => (float)(0.4 * Math.Sin(2 * Math.PI * 180 * i / rate)));
+        var twoWords = speech.Concat(new float[rate * 3 / 10]).Concat(word2).ToArray();
+        double twoSec = PcmAudio.TrimTrailingNoise(twoWords, rate).Length / (double)rate;
+        Check(twoSec >= 1.75, "trim: second word after a pause kept (" + twoSec + " s)");
+
         var clean = speech.ToArray();
         Check(PcmAudio.TrimTrailingNoise(clean, rate).Length >= clean.Length - rate / 50, "trim: clean audio keeps its length");
         var quiet = new float[rate];
