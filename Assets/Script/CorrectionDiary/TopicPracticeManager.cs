@@ -44,6 +44,12 @@ public class TopicPracticeManager : MonoBehaviour
     [SerializeField] private bool sendToDiscord = true;
     [SerializeField] private string discordWebhookUrl;
     [SerializeField] private string discordChannelId;
+    [Tooltip("発音チェックのアドバイスを Discord に送る (採点結果とは別のチャンネル)")]
+    [SerializeField] private bool sendPronunciationToDiscord = true;
+    [Tooltip("発音チェック用の Webhook URL。ApiSecrets.json の pronunciationDiscordWebhookUrl があればそちらを使う")]
+    [SerializeField] private string pronunciationWebhookUrl;
+    [Tooltip("Webhook の代わりに Bot で送る場合のチャンネルID。ApiSecrets.json の pronunciationDiscordChannelId があればそちらを使う")]
+    [SerializeField] private string pronunciationChannelId;
 
     [Header("Cloud (空欄ならシーンから探す)")]
     [SerializeField] private SupabaseService supabase;
@@ -96,6 +102,7 @@ public class TopicPracticeManager : MonoBehaviour
 
     private GeminiApiClient _gemini;
     private DiscordClient _discord;
+    private DiscordClient _pronDiscord;   // 発音チェックのアドバイス用 (別のチャンネル)
     private readonly System.Random _rng = new System.Random();
 
     private State _state = State.Idle;
@@ -163,6 +170,11 @@ public class TopicPracticeManager : MonoBehaviour
         _gemini = new GeminiApiClient(topicKey, geminiModel, geminiFallbackModel,
             backupApiKeys: new[] { geminiApiKey, secrets.geminiSummaryApiKey });
         _discord = new DiscordClient(discordWebhookUrl, discordBotToken, discordChannelId);
+
+        pronunciationWebhookUrl = ApiSecrets.Pick(secrets.pronunciationDiscordWebhookUrl, pronunciationWebhookUrl);
+        pronunciationChannelId = ApiSecrets.Pick(secrets.pronunciationDiscordChannelId, pronunciationChannelId);
+        string pronBotToken = string.IsNullOrWhiteSpace(pronunciationChannelId) ? "" : secrets.discordBotToken;
+        _pronDiscord = new DiscordClient(pronunciationWebhookUrl, pronBotToken, pronunciationChannelId);
     }
 
     private void Start()
@@ -807,8 +819,10 @@ public class TopicPracticeManager : MonoBehaviour
         RefreshButtons();
         try
         {
-            _lastPronComment = await _gemini.CheckPronunciationAsync(_readSentences[_readIndex], wav);
+            string sentence = _readSentences[_readIndex];
+            _lastPronComment = await _gemini.CheckPronunciationAsync(sentence, wav);
             SetStatus("Pronunciation checked.");
+            SendPronunciationToDiscord(sentence, _lastPronComment);   // 待たない
         }
         catch (Exception e)
         {
@@ -975,6 +989,21 @@ public class TopicPracticeManager : MonoBehaviour
             Debug.LogWarning("[TopicPractice] could not save the result. Keeping it to upload later: " + e.Message);
             ticket.PendingLocalId = PendingTopicStore.Add(topic.kind, topic.topic, seconds, g, transcript, takenAt,
                                                           ticket.ReadAloudAccuracy);
+        }
+    }
+
+    // 発音チェックのアドバイスを、発音用のチャンネルに送る (失敗しても画面の結果はそのまま)
+    private async void SendPronunciationToDiscord(string sentence, string advice)
+    {
+        if (!sendPronunciationToDiscord || _pronDiscord == null || !_pronDiscord.IsConfigured) return;
+        try
+        {
+            await _pronDiscord.SendPronunciationAsync(DateTime.Now, _topic?.topic, sentence, advice);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[TopicPractice] could not send pronunciation advice to Discord: " + e.Message);
+            if (this != null && !_busy) SetStatus("Pronunciation checked, but Discord failed: " + FirstLine(e.Message));
         }
     }
 

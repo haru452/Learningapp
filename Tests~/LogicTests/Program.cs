@@ -27,6 +27,7 @@ public static class LogicTests
         SchemaTests();
         AttemptOrderTests();
         TabBadgeTests();
+        PronunciationMessageTests();
         TopicCatalogTests();
         MistakesJsonTests();
 
@@ -82,6 +83,21 @@ public static class LogicTests
         Check(r.AccuracyPercent == 100, $"em dash splits words ({r.AccuracyPercent})");
         r = ReadAloudMatcher.Match("Wait - what?", "wait what");
         Check(r.AccuracyPercent == 100 && r.Words.Count == 2, $"lone dash is not a word ({r.AccuracyPercent}, {r.Words.Count})");
+    }
+
+    // 発音チェックのアドバイスを Discord に送る文
+    private static void PronunciationMessageTests()
+    {
+        string m = DiscordClient.PronunciationMessage(new DateTime(2026, 10, 22, 9, 30, 0),
+            "Do you prefer paper books?", "I prefer reading paper books.", "Say \"prefer\" with stress on the second syllable.");
+        Check(m.StartsWith("\U0001F3A4 **Pronunciation check - 2026-10-22 09:30**"), "pron message header: " + m);
+        Check(m.Contains("Topic: Do you prefer paper books?"), "pron message has topic");
+        Check(m.Contains("> I prefer reading paper books."), "pron message quotes the sentence");
+        Check(m.Contains("Say \"prefer\" with stress"), "pron message has advice");
+        string noTopic = DiscordClient.PronunciationMessage(new DateTime(2026, 10, 22), null, "Hi.", "Clear.");
+        Check(!noTopic.Contains("Topic:"), "no topic line when topic is empty");
+        Check(DiscordClient.PronunciationMessage(DateTime.Now, "t", "s", new string('a', 5000)).Length <= 2000,
+            "pron message fits in one Discord message");
     }
 
     // ほかの画面にいる間に採点が終わったら、タブの名前に印を付ける (開いたら消す)

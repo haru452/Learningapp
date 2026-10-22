@@ -146,6 +146,27 @@ public class DiscordClient
         }
     }
 
+    /// <summary>発音チェックで Gemini からもらったアドバイスを送る (1 メッセージ)</summary>
+    public async Task SendPronunciationAsync(DateTime date, string topic, string sentence, string advice)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("Discord is not configured.");
+        await PostAsync(PronunciationMessage(date, topic, sentence, advice));
+    }
+
+    /// <summary>発音チェックのメッセージ。長すぎるアドバイスは 1 メッセージに収まるよう切る</summary>
+    public static string PronunciationMessage(DateTime date, string topic, string sentence, string advice)
+    {
+        string head =
+            "\U0001F3A4 **Pronunciation check - " + date.ToString("yyyy-MM-dd HH:mm") + "**\n" +
+            (string.IsNullOrWhiteSpace(topic) ? "" : "Topic: " + topic.Trim() + "\n") +
+            "> " + (sentence ?? "").Trim().Replace("\n", "\n> ") + "\n\n";
+        string body = (advice ?? "").Trim();
+        int room = MaxMessageLength - head.Length;
+        if (body.Length > room) body = body.Substring(0, Math.Max(0, room - 1)) + "\u2026";
+        return head + body;
+    }
+
     // ------------------------------------------------------------
     // Internal
     // ------------------------------------------------------------
