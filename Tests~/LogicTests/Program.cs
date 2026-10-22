@@ -38,6 +38,7 @@ public static class LogicTests
         RepeatTtsTests();
         RepeatRpcTests();
         TrimNoiseTests();
+        ShadowTests();
         RepeatDiscordTests();
 
         if (_failed > 0)
@@ -243,6 +244,85 @@ public static class LogicTests
         var quiet = new float[rate];
         Check(PcmAudio.TrimTrailingNoise(quiet, rate).Length == rate, "trim: all quiet -> unchanged");
         Check(PcmAudio.TrimTrailingNoise(new float[0], rate).Length == 0, "trim: empty");
+    }
+
+    // ---------------- シャドーイング (架空のフィード・架空の文だけを使う) ----------------
+    private static ShadowChunker.Line SL(string text, double start, double end) =>
+        new ShadowChunker.Line { Text = text, Speaker = "A", Start = start, End = end };
+
+    private static void ShadowTests()
+    {
+        string rss = "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>Test show</title>" +
+            "<item><title>Old one</title><pubDate>Thu, 16 Oct 2026 08:00:00 GMT</pubDate>" +
+            "<guid isPermaLink=\"false\">urn:test:podcast:p0aaaa</guid><enclosure url=\"https://example.com/x/a.mp3\" length=\"1\" type=\"audio/mpeg\"/></item>" +
+            "<item><title>New one &amp; more</title><pubDate>Thu, 23 Oct 2026 08:00:00 GMT</pubDate>" +
+            "<enclosure url=\"https://example.com/x/b_file.mp3\" type=\"audio/mpeg\"/></item>" +
+            "<item><title>No audio</title><pubDate>Fri, 24 Oct 2026 08:00:00 GMT</pubDate></item></channel></rss>";
+        var eps = BbcFeed.Parse(rss);
+        Check(eps.Count == 2, "feed: 2 episodes with audio (" + eps.Count + ")");
+        if (eps.Count == 2)
+        {
+            Check(eps[0].Title == "New one & more" && eps[1].Title == "Old one", "feed: newest first, entities decoded");
+            Check(eps[1].Id == "p0aaaa" && eps[0].Id == "b_file", "feed: id from guid, else file name (" + eps[1].Id + ", " + eps[0].Id + ")");
+            Check(eps[1].AudioUrl == "https://example.com/x/a.mp3", "feed: audio url");
+        }
+        Check(BbcFeed.Parse("<rss><broken").Count == 0, "feed: broken xml -> empty");
+        Check(BbcFeed.Parse(null).Count == 0, "feed: null -> empty");
+
+        string six = "one two three four five six";
+        var eight = Enumerable.Range(0, 8).Select(i => SL(six + " " + i + ".", i * 4.0, i * 4.0 + 3.0)).ToList();
+        var chunks = ShadowChunker.Chunk(eight, 60);
+        Check(chunks.Count == 2 && chunks[0].Count == 5 && chunks[1].Count == 3, "chunk: 8 lines -> 5 + 3");
+        Check(ShadowChunker.Chunk(eight.Take(7).ToList(), 60).Count == 1, "chunk: 7 lines -> 5 (2 left over dropped)");
+        var bad = new List<ShadowChunker.Line>
+        {
+            SL(six + " a.", 1, 4), SL(six + " b.", 5, 5), SL(six + " c.", 3, 6), SL("too short here.", 7, 8),
+            SL(string.Join(" ", Enumerable.Repeat("word", 21)) + ".", 9, 12), SL(six + " d.", 13, 99),
+            SL(six + " e.", 14, 16), SL(six + " f.", 17, 19), SL(six + " g.", 20, 22), SL(six + " h.", 23, 25),
+        };
+        var good = ShadowChunker.Chunk(bad, 30);
+        Check(good.Count == 1 && good[0].Select(l => l.Text.Split(' ').Last()).SequenceEqual(new[] { "a.", "e.", "f.", "g.", "h." }),
+            "chunk: bad times, 3 words, 21 words and past-the-end lines dropped");
+        var longOnes = Enumerable.Range(0, 5).Select(i => SL(six + " " + i + ".", i * 13.0, i * 13.0 + 12.0)).ToList();
+        Check(ShadowChunker.Chunk(longOnes, 70).Count == 0, "chunk: over 55 s (recorder limit) not used");
+        var w = ShadowChunker.Window(SL(six, 1.0, 2.0), 2.1);
+        Check(Math.Abs(w.start - 0.8) < 1e-9 && Math.Abs(w.end - 2.1) < 1e-9, "chunk: window pads 0.2 s within the audio");
+        var parsed = ShadowChunker.ParseGemini("{\"sentences\":[{\"text\":\"a b c d\",\"speaker\":\"Neil\",\"start\":1.5,\"end\":3.25}]}");
+        Check(parsed.Count == 1 && parsed[0].Speaker == "Neil" && parsed[0].Start == 1.5 && parsed[0].End == 3.25, "chunk: parse Gemini JSON");
+        Check(ShadowChunker.ParseGemini("nope").Count == 0, "chunk: broken Gemini JSON -> empty");
+
+        var sentences = new[] { "I like green tea.", "She went home early today.", "We play soccer." };
+        var sc = ShadowScorer.Score(sentences, "i like green tea we play soccer");
+        Check(sc.scores.Select(x => x.Accuracy).SequenceEqual(new[] { 100, 0, 100 }) && sc.average == 67 && !sc.empty,
+            "score: per sentence " + string.Join(",", sc.scores.Select(x => x.Accuracy)) + " avg " + sc.average);
+        Check(sc.scores[1].Words.Count == 5 && sc.scores[1].Words.All(x => !x.Matched), "score: missed sentence words all red");
+        var none = ShadowScorer.Score(sentences, "  ");
+        Check(none.empty && none.average == 0, "score: nothing heard -> empty");
+
+        foreach (int t in new[] { 3, 4, 7, 8, 22, 23, 26 }) Check(EarphoneCheck.IsEarphone(t), "earphone type " + t);
+        foreach (int t in new[] { 1, 2, 27, 0 }) Check(!EarphoneCheck.IsEarphone(t), "not earphone type " + t);
+
+        try
+        {
+            var schema = JsonDocument.Parse(GeminiApiClient.ShadowSegmentSchema).RootElement;
+            var item = schema.GetProperty("properties").GetProperty("sentences").GetProperty("items").GetProperty("properties");
+            Check(item.TryGetProperty("text", out _) && item.TryGetProperty("start", out _) && item.TryGetProperty("end", out _)
+                  && item.TryGetProperty("speaker", out _), "shadow schema has text/speaker/start/end");
+        }
+        catch (Exception e) { Check(false, "shadow schema JSON: " + e.Message); }
+
+        var rows = new List<RepeatResult>
+        {
+            new RepeatResult { sentence = "I like green tea.", accuracy = 100, source = "bbc", voice = "human", mode = "shadow" },
+            new RepeatResult { sentence = "We play soccer.", accuracy = 50, heard = "we play", source = "tatoeba", voice = "human" },
+        };
+        var rj = JsonDocument.Parse(RepeatRpc.ResultsJson(rows)).RootElement;
+        Check(rj[0].GetProperty("mode").GetString() == "shadow" && rj[1].GetProperty("mode").GetString() == "repeat", "rpc: mode (empty -> repeat)");
+
+        string sm = DiscordClient.ShadowMessage(new DateTime(2026, 10, 22, 21, 0, 0), "New one & more", rows);
+        Check(sm.StartsWith("\U0001F3A7 **Shadowing - 2026-10-22 21:00**"), "shadow discord header: " + sm);
+        Check(sm.Contains("6 Minute English: New one & more") && sm.Contains("Average: 75%") && sm.Contains("\u26A0\uFE0F  50%  We play soccer."),
+            "shadow discord body");
     }
 
     private static void RepeatRpcTests()

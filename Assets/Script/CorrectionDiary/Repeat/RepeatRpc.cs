@@ -23,6 +23,7 @@ public static class RepeatRpc
                   .Append(",\"source\":").Append(Str(r.source))
                   .Append(",\"voice\":").Append(Str(r.voice))
                   .Append(",\"tatoeba_id\":").Append(r.tatoebaId > 0 ? r.tatoebaId.ToString(CultureInfo.InvariantCulture) : "null")
+                  .Append(",\"mode\":").Append(Str(r.mode == "shadow" ? "shadow" : "repeat"))
                   .Append(",\"audio_id\":").Append(r.audioId > 0 ? r.audioId.ToString(CultureInfo.InvariantCulture) : "null")
                   .Append('}');
             }

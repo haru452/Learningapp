@@ -12,4 +12,5 @@ public class RepeatResult
     public string voice;      // human / gemini / device
     public long tatoebaId;    // 0 = なし
     public long audioId;      // 0 = なし
+    public string mode;       // repeat / shadow (空ならリピーティング)
 }

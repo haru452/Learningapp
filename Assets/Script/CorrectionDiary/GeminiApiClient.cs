@@ -518,6 +518,31 @@ public class GeminiApiClient
         return result;
     }
 
+    // ---------------- シャドーイング: 番組の音声を文と時間に切り出す ----------------
+    private const string ShadowSegmentPrompt =
+        "This is an English podcast episode (a conversation between hosts). " +
+        "Split the spoken conversation into sentences and give each sentence's start and end time in seconds " +
+        "from the beginning of the audio (2 decimal places). Write each sentence exactly as it was spoken. " +
+        "Give the speaker's name if it is said, otherwise \"A\" or \"B\". " +
+        "Leave out the music at the start and end and the fixed programme introduction and closing lines. " +
+        "List the sentences in the order they are spoken.";
+
+    public const string ShadowSegmentSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{\"sentences\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"OBJECT\"," +
+        "\"properties\":{\"text\":{\"type\":\"STRING\"},\"speaker\":{\"type\":\"STRING\"}," +
+        "\"start\":{\"type\":\"NUMBER\"},\"end\":{\"type\":\"NUMBER\"}}," +
+        "\"required\":[\"text\",\"speaker\",\"start\",\"end\"]}}},\"required\":[\"sentences\"]}";
+
+    /// <summary>番組の音声 (MP3 など) を渡し、{"sentences":[...]} の JSON をそのまま返す</summary>
+    public async Task<string> SegmentEpisodeAsync(byte[] audio, string mimeType)
+    {
+        if (audio == null || audio.Length == 0) throw new ArgumentException("No audio.", nameof(audio));
+        string part = "{\"inline_data\":{\"mime_type\":\"" + HttpUtil.JsonEscape(string.IsNullOrEmpty(mimeType) ? "audio/mpeg" : mimeType) +
+                      "\",\"data\":\"" + Convert.ToBase64String(audio) + "\"}}";
+        return await GeneratePartsAsync(TextPart(ShadowSegmentPrompt) + "," + part, ShadowSegmentSchema,
+                                        "\"temperature\":0.1", AudioGradeTimeoutSeconds);
+    }
+
     /// <summary>お手本の文を読んだ録音を聞いて、発音について短くコメントする</summary>
     public async Task<string> CheckPronunciationAsync(string expectedText, byte[] wav)
     {

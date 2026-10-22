@@ -170,6 +170,39 @@ public class DiscordClient
         var sb = new System.Text.StringBuilder();
         sb.Append("\U0001F501 **Repeat practice - ").Append(date.ToString("yyyy-MM-dd HH:mm")).Append("**\n")
           .Append("Average: ").Append(average).Append("%\n");
+        return AppendResultLines(sb, results);
+    }
+
+    /// <summary>シャドーイング 1 回分 (5 文) の結果を送る (リピーティングと同じチャンネル)</summary>
+    public async Task SendShadowResultsAsync(DateTime date, string episodeTitle, IList<RepeatResult> results)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("Discord is not configured.");
+        List<string> chunks = Split(ShadowMessage(date, episodeTitle, results), MaxMessageLength);
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            await PostAsync(chunks[i]);
+            if (i < chunks.Count - 1)
+                await Task.Delay(500);   // レート制限対策
+        }
+    }
+
+    /// <summary>シャドーイングのメッセージ: 回のタイトル、平均、文ごとの一致率 (リピーティングと同じ形)</summary>
+    public static string ShadowMessage(DateTime date, string episodeTitle, IList<RepeatResult> results)
+    {
+        results = results ?? new List<RepeatResult>();
+        int average = results.Count == 0 ? 0
+            : (int)Math.Round(results.Average(r => r.accuracy), MidpointRounding.AwayFromZero);
+        var sb = new System.Text.StringBuilder();
+        sb.Append("\U0001F3A7 **Shadowing - ").Append(date.ToString("yyyy-MM-dd HH:mm")).Append("**\n");
+        if (!string.IsNullOrWhiteSpace(episodeTitle))
+            sb.Append("6 Minute English: ").Append(episodeTitle.Trim()).Append('\n');
+        sb.Append("Average: ").Append(average).Append("%\n");
+        return AppendResultLines(sb, results);
+    }
+
+    private static string AppendResultLines(System.Text.StringBuilder sb, IList<RepeatResult> results)
+    {
         foreach (var r in results)
         {
             bool ok = r.accuracy >= 80;
