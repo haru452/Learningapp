@@ -59,3 +59,12 @@ Assets/My assets/スクリーンショット 2026-10-09 162612.png
 Assets/My assets/スクリーンショット 2026-10-09 162612.png.meta
 Assets/My assets/260913132852632.JPG
 Assets/My assets/260913132852632.JPG.meta
+
+
+# Tatoeba のデータ (著作権のため、絶対に git に入れない)
+/Tools~/tatoeba/*.bz2
+/Tools~/tatoeba/*.tsv
+/Tools~/tatoeba/*.csv
+/Tools~/tatoeba/*.tar
+/Assets/Resources/RepeatSentences.json
+/Assets/Resources/RepeatSentences.json.meta
