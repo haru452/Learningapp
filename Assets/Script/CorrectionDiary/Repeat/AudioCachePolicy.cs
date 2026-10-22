@@ -12,8 +12,8 @@ public static class AudioCachePolicy
 
     public static string TatoebaName(long audioId) => "tatoeba_" + audioId + ".mp3";
 
-    // 作り方を変えたら上げる (古い保存を使わないように)。v2: 指示を読まない・最後の雑音を切る
-    private const string GeminiVersion = "v2";
+    // 作り方を変えたら上げる (古い保存を使わないように)。v2: 指示を読まない・最後の雑音を切る / v3: 大きな雑音も切る
+    private const string GeminiVersion = "v3";
 
     /// <summary>文と声の名前から作る (同じ文・声なら同じ名前)</summary>
     public static string GeminiName(string text, string voice)

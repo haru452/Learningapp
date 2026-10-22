@@ -65,7 +65,7 @@ Tatoeba のデータは**著作権のため git に入れていません**（`.g
    cd Tools~/tatoeba
    python3 build_repeat_sentences.py --sentences eng_sentences.tsv.bz2 --audio sentences_with_audio.tar.bz2 --out ../../Assets/Resources/RepeatSentences.json --count 1000 --seed 42
    ```
-   条件：録音とライセンスがある / 6〜15 語 / Tom・Mary が出てくる文は 15% まで（テスト：`python3 -m unittest test_build_repeat_sentences`）
+   条件：録音とライセンスがある / 5〜10 語 / Tom・Mary が出てくる文は 15% まで（テスト：`python3 -m unittest test_build_repeat_sentences`）
 3. 録音は、練習で流すときにアプリが Tatoeba からダウンロードする
 
 > ⚠️ 文は CC BY 2.0 FR、録音は録音した人ごとのライセンス（主に CC BY-NC-ND）です。**個人の学習用（営利目的でない）でだけ**使ってください。アプリを有料で配ったり、録音を加工して配ったりはできません。画面に作者名を表示しています。

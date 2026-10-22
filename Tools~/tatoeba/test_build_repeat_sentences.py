@@ -27,7 +27,8 @@ BAD = [
     (12, 'He said "hello" to me today.'),                              # "
     (13, "I bought (two) new shirts today."),                          # (
     (14, "My number is 123 and my room is 45."),                       # 数字 5 個
-    (15, "x" * 60 + " " + "y" * 60 + " a b c d."),                     # 120 文字超え
+    (15, "x" * 40 + " " + "y" * 40 + " a b c d."),                     # 80 文字超え
+    (16, "I would really like to go to the beach with you soon."),     # 11 語 (長すぎて言い返しにくい)
 ]
 
 

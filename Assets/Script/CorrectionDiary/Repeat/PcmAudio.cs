@@ -16,8 +16,9 @@ public static class PcmAudio
 
     /// <summary>
     /// 声が終わった後の「ザー」という雑音を切る (Gemini の音声の最後に付くことがある)。
-    /// 20 ms ごとの音の大きさを見て、いちばん大きいところの 15% を超える最後の位置 + 120 ms までを残し、
-    /// 最後の 30 ms を小さくしていく (プツッと切れないように)。全部小さい音なら、そのまま返す
+    /// 20 ms ごとに、音の大きさと「波の向きが変わる回数」(ゼロ交差) を見る。
+    /// 声 (母音) = 大きくて、向きが変わる回数が少ない。雑音 = 向きが細かく何度も変わる (大きくても雑音)。
+    /// 最後の声の位置 + 100 ms までを残し、最後の 60 ms を小さくしていく。声が見つからなければ、そのまま返す
     /// </summary>
     public static float[] TrimTrailingNoise(float[] samples, int sampleRate)
     {
@@ -25,25 +26,35 @@ public static class PcmAudio
         int win = Math.Max(1, sampleRate / 50);
         int windows = (samples.Length + win - 1) / win;
         var rms = new double[windows];
-        double peak = 0;
+        var zcr = new double[windows];
         for (int w = 0; w < windows; w++)
         {
             int start = w * win, end = Math.Min(samples.Length, start + win);
             double sum = 0;
-            for (int i = start; i < end; i++) sum += samples[i] * (double)samples[i];
+            int crossings = 0;
+            for (int i = start; i < end; i++)
+            {
+                sum += samples[i] * (double)samples[i];
+                if (i > start && (samples[i] < 0) != (samples[i - 1] < 0)) crossings++;
+            }
             rms[w] = Math.Sqrt(sum / (end - start));
-            peak = Math.Max(peak, rms[w]);
+            zcr[w] = crossings / (double)Math.Max(1, end - start - 1);
         }
+
+        const double NoiseZcr = 0.25;   // 1 サンプルごとの向きの変わりやすさ (白い雑音は約 0.5、母音は 0.1 以下)
+        double peak = 0;
+        for (int w = 0; w < windows; w++) if (zcr[w] < NoiseZcr) peak = Math.Max(peak, rms[w]);
         if (peak < 0.01) return (float[])samples.Clone();
 
-        int last = 0;
+        int last = -1;
         for (int w = windows - 1; w >= 0; w--)
-            if (rms[w] >= peak * 0.15) { last = w; break; }
-        int length = Math.Min(samples.Length, (last + 1) * win + sampleRate * 120 / 1000);
+            if (zcr[w] < NoiseZcr && rms[w] >= peak * 0.15) { last = w; break; }
+        if (last < 0) return (float[])samples.Clone();
+        int length = Math.Min(samples.Length, (last + 1) * win + sampleRate / 10);
 
         var result = new float[length];
         Array.Copy(samples, result, length);
-        int fade = Math.Min(length, sampleRate * 30 / 1000);
+        int fade = Math.Min(length, sampleRate * 60 / 1000);
         for (int i = 0; i < fade; i++)
             result[length - fade + i] *= (float)(fade - 1 - i) / Math.Max(1, fade - 1);
         return result;

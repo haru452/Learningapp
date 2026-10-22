@@ -201,6 +201,18 @@ public static class LogicTests
         Check(Math.Abs(trimmed[trimmed.Length - 1]) < 0.01f, "trim: ends with a fade out");
         Check(Math.Abs(trimmed[rate / 2] - input[rate / 2]) < 1e-6, "trim: speech untouched");
 
+        // 声と同じくらい大きい「ザー」(0.6 秒) も切る (雑音は波の向きがとても細かく変わる)
+        var loudHiss = Enumerable.Range(0, rate * 6 / 10).Select(_ => (float)((rnd.NextDouble() * 2 - 1) * 0.5));
+        var loud = PcmAudio.TrimTrailingNoise(speech.Concat(loudHiss).ToArray(), rate);
+        double loudSec = loud.Length / (double)rate;
+        Check(loudSec >= 1.0 && loudSec <= 1.2, "trim: loud trailing hiss removed (" + loudSec + " s)");
+
+        // 文の最後の「s」(短いノイズ 80 ms) は残す
+        var sBurst = Enumerable.Range(0, rate * 8 / 100).Select(_ => (float)((rnd.NextDouble() * 2 - 1) * 0.3));
+        var withS = speech.Concat(sBurst).Concat(new float[rate / 2]).ToArray();
+        var keptS = PcmAudio.TrimTrailingNoise(withS, rate);
+        Check(keptS.Length >= rate + rate * 7 / 100, "trim: final 's' sound kept (" + keptS.Length / (double)rate + " s)");
+
         var clean = speech.ToArray();
         Check(PcmAudio.TrimTrailingNoise(clean, rate).Length >= clean.Length - rate / 50, "trim: clean audio keeps its length");
         var quiet = new float[rate];

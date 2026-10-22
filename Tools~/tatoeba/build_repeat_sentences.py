@@ -6,7 +6,7 @@ Tatoeba のエクスポートから、リピーティング練習に使う英文
       --out ../../Assets/Resources/RepeatSentences.json --count 1000 --seed 42
 
 選ぶ条件: 英語 / 録音がある / 録音のライセンス欄が空でない (空 = 再利用の許可がない) /
-6〜15 語 / 120 文字以内 / `"` と `(` を含まない / 数字は 2 個まで / 同じ文は 1 回だけ /
+5〜10 語 / 80 文字以内 / `"` と `(` を含まない / 数字は 2 個まで / 同じ文は 1 回だけ /
 Tom・Mary が出てくる文は全体の 15% まで。
 決まった seed で選ぶので、毎回同じ結果になる。
 
@@ -21,7 +21,7 @@ import random
 import re
 import tarfile
 
-MIN_WORDS, MAX_WORDS, MAX_CHARS, MAX_DIGITS = 6, 15, 120, 2
+MIN_WORDS, MAX_WORDS, MAX_CHARS, MAX_DIGITS = 5, 10, 80, 2   # 1 回聞いて言い返せる長さ
 # Tatoeba には "Tom" と "Mary" の文がとても多い (そのままだと半分近く) ので、全体の 15% までにする
 NAME_SHARE = 0.15
 _NAME_RE = re.compile(r"\b(Tom|Mary)\b")
