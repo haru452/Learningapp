@@ -12,7 +12,7 @@
 成功の基準:
 - 1 回 5 文の練習が 1 画面で途切れずにでき、文ごとに「言えた単語 / 抜けた単語」と一致率が分かる。
 - 言えなかった文 (80% 未満) が次回に優先して出る。
-- 自分の添削文 (日記・要約・お題) から文が出る。足りないときだけ Gemini を使い、通信できなくても練習できる。
+- 基本は **本物の人の声** (Tatoeba の録音) で聞ける。5 文のうち最大 2 文は自分の添削文 (日記・要約・お題) で、Gemini の自然な声で読む。
 - やった日が連続記録・カレンダーに数えられ、Web で一致率の推移と苦手な文が見られる。
 
 ## 決めたこと (利用者との合意)
@@ -20,14 +20,14 @@
 | 項目 | 決定 |
 |---|---|
 | 練習の形 | リピーティング (1 文を聞き終わってから言い返す)。シャドーイングはしない |
-| 文の出どころ | ① 前回言えなかった文 → ② 自分の添削文 (日記・要約・お題、直近 30 日) → ③ 足りなければ Gemini → ④ 通信できなければアプリ内のリスト |
+| 文の出どころ | 5 文 = ① 前回言えなかった文 (最大 2) → ② 自分の添削文 (日記・要約・お題、直近 30 日、最大 2) → ③ 残りは Tatoeba の人の録音つきの文 |
 | 英文の表示 | 聞く間は隠す。言い終わったら出し、言えた単語は緑・抜けた単語は赤 |
-| 読み上げの声 | Gemini の音声合成 (TTS) で人に近い声。女性の若い声 `Leda` (Inspector で変えられる)。失敗・上限のときは端末の読み上げ |
-| 聞き直し | 「もう一度」「ゆっくり」を何度でも。回数を記録する |
+| 読み上げの声 | Tatoeba の文 = 本物の人の録音。自分の添削文 = Gemini の音声合成 (女性の若い声 `Leda`、Inspector で変えられる)。前回言えなかった文は前と同じ声。失敗・上限のときは端末の読み上げ |
+| 聞き直し | 「もう一度」「ゆっくり」を何度でも。ゆっくりはアプリで音を引き伸ばす (声の高さは変えない)。回数を記録する |
 | 1 回の練習 | 5 文 |
 | 「言えなかった」の基準 | 一致率 80% 未満 |
 | 記録 | Supabase に保存。連続記録・カレンダーに数える。Web に専用ページ |
-| Gemini のキー | 文を作る用に 4 つ目のキー `geminiRepeatApiKey`、読み上げの音声用に 5 つ目のキー `geminiTtsApiKey` (どちらも空なら日記のキー)。上限 (429) ならほかのキーを借りる |
+| Gemini のキー | 読み上げの音声用に専用のキー `geminiTtsApiKey` (空なら日記のキー)。上限 (429) ならほかのキーを借りる。リピーティングで Gemini を使うのは読み上げだけ (文は作らせない) |
 | Discord | 専用のチャンネル (`repeatDiscordWebhookUrl` / `repeatDiscordChannelId`) |
 | カレンダーの色 | 1 種類はその色 (日記=オレンジ、要約=青、お題=緑、リピーティング=ピンク)、2 種類=銅、3 種類=銀、4 つ全部=金。今の紫はなくなる |
 
@@ -64,36 +64,56 @@ Idle ──Start──▶ Preparing (文を集める) ──▶ Listening (読�
 - 照合は `ReadAloudMatcher` をそのまま使う (大文字小文字・句読点を無視、縮約形を展開、ハイフンで区切る)。
 - 読み上げや音声認識の途中でほかのタブへ移ったら中断して Idle に戻る (それまでに終わった文は捨てる)。Summary まで行った結果の保存は、画面を移っても続ける。
 - Gemini の音声も端末の読み上げも使えないとき (エディタ / iOS で通信できない など) は「読み上げができません」と出して Idle に戻る。
-- 音声認識が使えない端末では、お題と同じく録音して Gemini で書き起こす (1 文ごとに 1 回使う)。
+- 音声認識が使えない端末では、お題と同じく録音して Gemini で書き起こす (1 文ごとに 1 回使う。キーは読み上げと同じ `geminiTtsApiKey`)。
 
-### 読み上げの声 (Gemini TTS)
+### 読み上げの声
 
+**Tatoeba の文 (人の声)**
+- アプリに Tatoeba の英文リスト `Resources/RepeatSentences.json` を入れておく (下の「Tatoeba の文のリスト」)。
+  1 件 = `{ id: 文の番号, audioId: 録音の番号, text: 英文, author: 録音した人, license: ライセンス }`。
+- 録音は、流すときに Tatoeba からダウンロードして (MP3)、端末に保存する。次からは保存したものを使う。
+- アプリの Repeat 画面の下に「Sentences & audio: Tatoeba (tatoeba.org) — 録音: <author> (<license>)」を小さく出す。
+
+**自分の添削文 (Gemini の声)**
 - Gemini の音声合成モデル (Inspector `ttsModel`、初期値 `gemini-3.8-flash-tts`) に、声 `Leda` (Inspector `ttsVoice`) で文を読ませる。
-  返ってくる音声 (PCM 16bit・24kHz・モノラル) を Unity の `AudioClip` にして `AudioSource` で流す。
-- **ゆっくり**: 🐢 を押したときだけ「Say slowly and clearly: 〜」と頼んで別に作る (速さを変えて再生すると声の高さが変わるため)。
-- **保存して使い回す**: 作った音声は端末に保存する (`Application.persistentDataPath/repeat_audio/`、文・声・速さから作った名前の WAV)。
-  同じ文の聞き直しや、次回の「言えなかった文」では保存したものを使い、Gemini を呼ばない。保存は最大 200 個・50 MB まで (古いものから消す)。
-- **先に作っておく**: 次の文の音声は、今の文を練習している間に作っておく。
-- **使うキー**: `ApiSecrets.geminiTtsApiKey` (空なら `geminiApiKey`)。上限 (429) ならほかのキー (日記 → 要約 → お題 → リピーティング) を借りる
+  返ってくる音声 (PCM 16bit・24kHz・モノラル) を `AudioClip` にして流す。
+- 使うキー: `ApiSecrets.geminiTtsApiKey` (空なら `geminiApiKey`)。上限 (429) ならほかのキー (日記 → 要約 → お題) を借りる
   (読み上げの上限もプロジェクトごとなので、別プロジェクトのキーなら枠が増える)。
-- **失敗・上限のとき**: 端末の読み上げ (`AndroidTts("en", "US")`、ゆっくりは速さ 0.75) で流す。画面に小さく「(device voice)」と出す。練習は止めない。
-- Gemini の上限に達したら、その日のうちは Gemini の読み上げを呼ばずに端末の読み上げを使う (無駄な呼び出しをしない。日付は夜 3 時区切り)。
+- Gemini の上限に達したら、その日のうちは Gemini の読み上げを呼ばず、端末の読み上げを使う (日付は夜 3 時区切り)。
+
+**共通**
+- **ゆっくり**: 同じ音声をアプリの中で 0.75 倍の速さに引き伸ばして流す (`TimeStretch`、声の高さは変えない)。Gemini はもう一度呼ばない。
+- **保存して使い回す**: 録音・Gemini の音声はどちらも端末に保存する (`Application.persistentDataPath/repeat_audio/`)。
+  名前は「人の声 = `tatoeba_<audioId>.mp3`」「Gemini = 文・声から作った名前の `.wav`」。保存は最大 300 個・60 MB まで (古いものから消す)。
+- **先に作っておく**: 次の文の音声は、今の文を練習している間にダウンロード・作成しておく。
+- **失敗したとき** (通信できない・上限など): 端末の読み上げ (`AndroidTts("en", "US")`) でその文を読む。画面に小さく「(device voice)」と出す。練習は止めない。
+- どの声で流したかを結果に記録する (`human` / `gemini` / `device`)。
+
+### Tatoeba の文のリスト
+
+- 利用者が Tatoeba のダウンロードページから 2 つのファイルを一度だけ取ってきて、`My project/Tools~/tatoeba/` に置く
+  (この作業環境からは Tatoeba に直接つなげないため):
+  - 英語の文: `eng_sentences.tsv.bz2` (per_language → eng)
+  - 録音のある文: `sentences_with_audio.tar.bz2` (列: sentence_id, audio_id, username, license, attribution_url)
+- 変換スクリプト `Tools~/tatoeba/build_repeat_sentences.py` が、次の条件で選んで `Assets/Resources/RepeatSentences.json` を作る:
+  - 英語で、録音があり、ライセンス欄が空でないもの (空 = 再利用の許可がない)。
+  - 6〜15 語、120 文字以内、`"` や `(` を含まない、数字が多すぎない。
+  - 同じ文は 1 回だけ。決まった乱数で 1,000 文選ぶ (毎回同じ結果)。
+- 録音の URL は `https://tatoeba.org/audio/download/<audioId>` (実装の最初に、実機で 1 つ流せることを確かめる)。
+- ライセンス: 文は CC BY 2.0 FR、録音は録音した人ごと (主に CC BY-NC-ND)。**個人の学習用 (営利目的でない) でだけ使う**。音声ファイルそのものは加工して配らない (アプリの中でゆっくり再生するだけ)。作者名を画面に出す。
 
 ### 文の選び方 (アプリ側)
 
-1. ログインしていれば、Supabase の `get_my_repeat_sentences(5)` を呼ぶ (下の SQL)。
-2. 5 文に足りなければ、Gemini に足りない数だけ作ってもらう (`GenerateRepeatSentencesAsync(count)`)。
-3. それでも足りない (通信できない・ログインしていない・Gemini が失敗) ときは、アプリ内のリスト `RepeatCatalog` から、直近に出した文を避けて選ぶ。
+1. ログインしていれば、Supabase の `get_my_repeat_sentences()` を呼ぶ (下の SQL)。前回言えなかった文 (最大 2) と自分の添削文 (最大 2) が返る。
+2. 残り (5 文に足りない分) を `RepeatSentences.json` から選ぶ。直近 7 日に出した文 (端末に覚えておく) は避ける。
+3. ログインしていない・通信できないときは、全部 `RepeatSentences.json` から選ぶ。
 4. 同じ文が 2 回入らないようにする (小文字にし、句読点を除いて比べる)。
+5. 並びは「言えなかった文 → Tatoeba と自分の文を混ぜる」。
 
-アプリ内のリスト `RepeatCatalog`: 日常・仕事・試験の文を合わせて 30 文以上。1 文 6〜15 語。
+### 設定
 
-### Gemini
-
-- 新しい関数 `GenerateRepeatSentencesAsync(int count)`: 中級の学習者向けに、日常・仕事でよく使う 6〜15 語の自然な英文を `count` 個作らせる。返り値は `{ "sentences": [string] }` (JSON スキーマで固定)。
-- 使うキー: `ApiSecrets.geminiRepeatApiKey` (空なら `geminiApiKey`)。上限 (429) ならほかのキーを `geminiApiKey` → `geminiSummaryApiKey` → `geminiTopicApiKey` の順に借りる。
-  日記・要約・お題の画面も、上限のときに借りるキーの最後に `geminiRepeatApiKey` を足す。
-- `ApiSecrets.example.json` に `geminiRepeatApiKey`、`geminiTtsApiKey`、`repeatDiscordWebhookUrl`、`repeatDiscordChannelId` を足す。
+- `ApiSecrets.example.json` に `geminiTtsApiKey`、`repeatDiscordWebhookUrl`、`repeatDiscordChannelId` を足す。
+- 日記・要約・お題の画面は、上限のときに借りるキーの最後に `geminiTtsApiKey` を足す。
 
 ### 保存
 
@@ -130,7 +150,10 @@ Average: 84%
 | heard | text | 聞き取れた文 (0〜500 文字) |
 | accuracy | int | 0〜100 |
 | replays | int | 聞き直した回数 (0〜99) |
-| source | text | `diary` / `summary` / `topic` / `missed` / `gemini` / `builtin` |
+| source | text | `diary` / `summary` / `topic` / `tatoeba` (前回言えなかった文でも、もとの出どころのまま) |
+| voice | text | 流した声: `human` / `gemini` / `device` |
+| tatoeba_id | bigint (null 可) | Tatoeba の文の番号 |
+| audio_id | bigint (null 可) | Tatoeba の録音の番号 (言えなかった文を同じ人の声で流すため) |
 
 - RLS: 自分の行だけ読める。直接の書き込みはできない (関数経由だけ)。
 - 1 人あたり最新 500 件まで (保存のたびに古いものを消す)。
@@ -138,16 +161,16 @@ Average: 84%
 ### 関数
 
 - `save_repeat_results(p_timezone, p_results jsonb, p_taken_at)` → 保存した件数
-  - `p_results` は `[{sentence, heard, accuracy, replays, source}]`、最大 10 件。空の文は飛ばす。accuracy は 0〜100、replays は 0〜99 に収める。source が知らない値なら `builtin`。
+  - `p_results` は `[{sentence, heard, accuracy, replays, source, voice, tatoeba_id, audio_id}]`、最大 10 件。空の文は飛ばす。accuracy は 0〜100、replays は 0〜99 に収める。source が知らない値なら `tatoeba`、voice が知らない値なら `device`。
   - 1 件以上保存したら、その日の `activity_days` に `repeat` を入れ、連続記録を更新する (お題の `topic_counts_as_study` と同じ仕組み)。
-- `get_my_repeat_sentences(p_limit int default 5, p_timezone text default 'Asia/Tokyo')` → `(sentence text, source text)`
-  - 候補 A (`missed`): 文ごとに一番新しい結果が 80% 未満のもの。新しく練習したものから。
+- `get_my_repeat_sentences(p_missed int default 2, p_own int default 2, p_timezone text default 'Asia/Tokyo')` → `(sentence text, source text, missed boolean, tatoeba_id bigint, audio_id bigint)`
+  - 候補 A (言えなかった文): 文ごとに一番新しい結果が 80% 未満のもの。新しく練習したものから最大 `p_missed` (0〜5) 件。もとの source・tatoeba_id・audio_id を返す。
   - 候補 B: 直近 30 日の `diary_entries.corrected_text` (`diary`)、`summary_results.improved_summary` (`summary`)、`topic_results.corrected` (`topic`) を 1 文ずつに分けたもの。
     - 分け方: `.` `!` `?` の後の空白で区切る。前後の空白と先頭の `- ` を取る。
     - 4 語未満、25 語より多い、300 文字より長い文は除く。
     - 直近 7 日に練習した文 (`repeat_results` にある文) は除く。
     - 順番はランダム。
-  - A を先に、残りを B で埋めて `p_limit` (1〜10) 件返す。同じ文 (小文字にして比べる) は 1 回だけ。
+  - A のあとに B を最大 `p_own` (0〜5) 件。同じ文 (小文字にして比べる) は 1 回だけ。
 - `get_my_repeat_results(p_limit int default 200)` → 結果の新しい順 (Web 用)。
 
 ### カレンダー
@@ -173,15 +196,18 @@ Average: 84%
 ## 4. テスト
 
 - SQL (`supabase/tests/repeat_test.sql`): 保存と範囲の丸め、ほかの人の結果が見えない、直接書き込めない、500 件の上限、文の分け方と語数の条件、80% 未満が先に出る・80% 以上になったら出ない・直近 7 日の文が出ない、`repeat` の日が連続記録とカレンダーに入る、4 種類の制約、`topic.sql` を後から実行し直しても壊れない。
-- アプリのロジック (`Tests~/LogicTests`): `RepeatCatalog` (30 文以上、6〜15 語、重複なし)、文の重複除き、Discord の文の作り方、Gemini のスキーマが正しい JSON、
-  読み上げ用のリクエストの形 (声の名前・音声で返す指定)、PCM から WAV への変換、保存ファイルの名前 (同じ文・声・速さなら同じ名前)、保存の上限で古いものから消す順番。
+- アプリのロジック (`Tests~/LogicTests`): 5 文の組み立て (言えなかった文 → 自分の文 → Tatoeba、重複なし、直近 7 日の文を避ける)、
+  `RepeatSentences.json` の読み込み、Discord の文の作り方、Gemini 読み上げのリクエストの形 (声の名前・音声で返す指定)、PCM から WAV への変換、
+  `TimeStretch` (長さが約 1/0.75 倍になる・音の高さが変わらない)、保存ファイルの名前と上限で古いものから消す順番。
+- 変換スクリプト (`build_repeat_sentences.py`): 小さな見本データで、条件どおりに選ぶ・ライセンスが空のものを除く・毎回同じ結果になる。
 - Web (`tests/web_test.py`): リピーティングのページ (統計・グラフ・苦手な文・使い方)、カレンダーの銅・銀・金・ピンク、文が HTML として入らない。
 - 画面の動き (読み上げ・音声認識・タブ移動) は自動テストができないので、Unity のコンパイルを通したうえで実機で確かめる。
 
 ## やらないこと
 
 - シャドーイング (音を流しながら同時に話す)。
-- 録音の保存。
+- 自分の声 (言い返した声) の録音の保存。
 - リピーティングでの Gemini の発音チェック (お題の言い直しにはある)。
-- 本物の人の録音 (添削から作る文は毎回違うため)。
+- 自分の添削文を人の声で流すこと (録音がないため、Gemini の声で読む)。
+- アプリを有料で配ること (Tatoeba の録音のライセンスが営利目的を認めていないため)。
 - iOS の端末の読み上げ (Gemini の音声は iOS でも流れるが、失敗したときの代わりは Android だけ)。
