@@ -149,8 +149,13 @@ public class RepeatAudioPlayer : MonoBehaviour
             return;
         }
 
+#if UNITY_ANDROID && !UNITY_EDITOR
         _deviceTts.SetVoiceStyle(1f, slow ? (float)SlowSpeed : 1f);
         await _deviceTts.SpeakAsync(s.Text, ct);
+#else
+        // 端末の読み上げが無い (エディタ・iOS): 音を出せないので、言い返す練習にならない
+        throw new RepeatAudioUnavailableException("no voice could be played");
+#endif
     }
 
     public void Stop()
@@ -274,4 +279,10 @@ public class RepeatAudioPlayer : MonoBehaviour
             Debug.LogWarning("[RepeatAudio] could not clean the audio cache: " + e.Message);
         }
     }
+}
+
+/// <summary>Tatoeba の録音も Gemini の声も端末の読み上げも使えず、文を流せなかった</summary>
+public class RepeatAudioUnavailableException : Exception
+{
+    public RepeatAudioUnavailableException(string message) : base(message) { }
 }

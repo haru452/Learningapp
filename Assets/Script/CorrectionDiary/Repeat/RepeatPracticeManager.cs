@@ -68,6 +68,7 @@ public class RepeatPracticeManager : MonoBehaviour
     private DiaryManager _diary;
     private readonly System.Random _rng = new System.Random();
     private static List<RepeatSentence> _tatoeba;
+    private string _note = "";   // 画面の下に出す案内 (Tatoeba の文が無いときなど)
 
     private List<RepeatSentence> _set = new List<RepeatSentence>();
     private int _index;
@@ -215,8 +216,13 @@ public class RepeatPracticeManager : MonoBehaviour
             SetStatus("No sentences yet. Add Tatoeba sentences (see README) or practice Diary / Topic first.");
             return;
         }
+        _note = "";
         if (catalog.Count == 0)
+        {
             Debug.LogWarning("[Repeat] Resources/RepeatSentences.json is missing or empty. See README (Tatoeba).");
+            _note = "Only " + _set.Count + " sentence" + (_set.Count == 1 ? "" : "s") +
+                    ": add Tatoeba sentences (see README) for 5 per session.";
+        }
 
         await player.PrepareAsync(_set[0]);
         if (this == null || _state != State.Preparing) return;
@@ -271,8 +277,17 @@ public class RepeatPracticeManager : MonoBehaviour
         catch (OperationCanceledException) { return; }
         catch (Exception e)
         {
+            // 流せなかった: 聞いていない文を言い返させない。練習をやめて Idle に戻る
             Debug.LogException(e);
-            SetStatus("Could not play the sentence: " + FirstLine(e.Message));
+            if (this == null) return;
+            _cts?.Cancel();
+            player.Stop();
+            SetLoading(false);
+            ShowSentence(null);
+            SetText(headerText, "Repeat");
+            SetState(State.Idle);
+            SetStatus("Could not play the sentence (" + FirstLine(e.Message) + "). Tap \"Start\" to try again.");
+            return;
         }
         if (this == null || _state != State.Listening) return;
         SetState(back);
@@ -544,7 +559,7 @@ public class RepeatPracticeManager : MonoBehaviour
         if (creditText == null) return;
         creditText.text = s.HasHumanAudio && !string.IsNullOrEmpty(s.Author)
             ? "Sentences & audio: Tatoeba (tatoeba.org) — voice: " + Escape(s.Author) + " (" + Escape(s.License) + ")"
-            : s.HasHumanAudio ? "Sentences & audio: Tatoeba (tatoeba.org)" : "";
+            : s.HasHumanAudio ? "Sentences & audio: Tatoeba (tatoeba.org)" : _note;
     }
 
     // 英文は言い返した後だけ、枠で囲んで出す
