@@ -23,8 +23,9 @@
 | 動画 | 英語ネイティブの動画を YouTube で毎回探す |
 | 作り | 案 1: アプリ + Supabase (動画探しと送信はアプリ) |
 | 送り先 | 今ある発音チェック用の Discord チャンネル (`pronunciationDiscordWebhookUrl` / `pronunciationDiscordChannelId`) |
+| 音の種類 | 固定 10 種類 + 「その他」(固定に当てはまらないときだけ、Gemini が短い英語の名前を付ける。名前ごとに数える) |
 
-## 音の種類 (固定 10 種類)
+## 音の種類 (固定 10 種類 + その他)
 
 | コード | アプリの表示 | Web の表示 | 例 | YouTube の検索語 |
 |---|---|---|---|---|
@@ -39,14 +40,22 @@
 | `extra_vowel` | Extra vowels | 余計な母音 (カタカナ発音) | stop → ストップ | `stop adding vowels English pronunciation consonant clusters` |
 | `stress` | Word stress | 強勢・リズム | PHO-to-graph | `word stress English pronunciation lesson` |
 
-知らないコードは保存しない (ミスの種類と違い「その他」は作らない)。
+**その他 (`other`)**: 固定の 10 種類に当てはまらない苦手だけ、Gemini が短い英語の名前 (`otherName`、例 `Z sound (zoo)`) を付けて返す。
+- 名前はそろえてから保存する (`SoundTypes.NormalizeOtherName`、SQL でも同じ処理): 小文字にする → カッコとその中身を取る → `sound` `sounds` という語を取る → 英字・数字・空白・`/` `-` だけ残す → 空白を 1 つに → 前後の空白を取る → 30 文字まで。
+  例: `Z sound (zoo)` → `z`、`The "W" Sound` → `the w`、`NG sounds` → `ng`。そろえた名前が空なら保存しない。
+- 数えるのは名前ごと (`other` の中で名前が同じものをまとめる)。表示は「Other: z」(アプリ)、「その他: z」(Web)。
+- YouTube の検索語: `how to pronounce <名前> sound English pronunciation`。
+- つづりからの推測では `other` を作らない (Gemini の判定だけ)。
+
+知らないコード (10 種類と `other` 以外) は保存しない。
 
 ## 1. 苦手な発音の見つけ方 (アプリ)
 
 ### Gemini の発音チェック (重み 3)
-- お題の「Pronunciation check」の返事 (JSON スキーマ) に `sounds` (上の 10 種類から 0〜2 個、enum で固定) を足す。
+- お題の「Pronunciation check」の返事 (JSON スキーマ) に `sounds` を足す: 0〜2 個の `{ code, otherName }`。
+  `code` は上の 10 種類か `other` (enum で固定)、`otherName` は `other` のときだけ使う。
   アドバイスと同じ 1 回の呼び出しなので、Gemini の使用回数は増えない。
-- 結果の画面に、アドバイスの下に「Sound: TH, R / L」と出す。
+- 結果の画面に、アドバイスの下に「Sound: TH, Other: z」のように出す。
 - 返ってきた種類を、そのとき読んだ文の単語 (文の中でその音を含む最初の語、無ければ空) と一緒に保存する。
 
 ### 言えなかった単語からの推測 (重み 1)
@@ -71,7 +80,8 @@
 | user_id | uuid | |
 | entry_date | date | 練習した日 (夜 3 時区切り、`_practice_date`) |
 | created_at | timestamptz | |
-| sound | text | 10 種類のどれか |
+| sound | text | 10 種類か `other` |
+| label | text | `other` のときのそろえた名前 (1〜30 文字)。ほかは空 |
 | weight | int | 3 (Gemini の判定) または 1 (推測) |
 | word | text | 例の単語 (0〜40 文字) |
 | source | text | `check` (発音チェック) / `read_aloud` (言い直し) / `repeat` (リピーティング) |
@@ -82,9 +92,9 @@
 
 ### 関数
 - `save_pronunciation_issues(p_timezone text, p_issues jsonb, p_taken_at timestamptz default null) returns int`
-  - `p_issues` = `[{sound, weight, word, source}]`、1 回 20 件まで。知らない sound は飛ばす。weight は 3 以外なら 1。word は 40 文字まで。source が知らない値なら `repeat`。
+  - `p_issues` = `[{sound, label, weight, word, source}]`、1 回 20 件まで。知らない sound は飛ばす。`other` は label をそろえ直し、空なら飛ばす (ほかの sound の label は空にする)。weight は 3 以外なら 1。word は 40 文字まで。source が知らない値なら `repeat`。
 - `get_my_weak_sounds(p_days int default 30, p_timezone text default 'Asia/Tokyo')`
-  → `sound text, points int, previous_points int, words jsonb`
+  → `sound text, label text, points int, previous_points int, words jsonb` (`sound` と `label` の組ごとに 1 行)
   - `points` = 期間内の weight の合計、`previous_points` = その前の同じ長さ (期間が 45 日を超えるときは null)、`words` = 新しい順に重ならない単語 最大 5 個。points の多い順。
 
 ## 3. 今日の発音練習 (アプリ → Discord)
@@ -96,7 +106,7 @@
   - 発音用の Discord チャンネルに送る:
     ```
     🎯 Today's pronunciation practice - 2026-10-23
-    Your weakest sound: TH (think / this) — 9 points in 30 days
+    Your weakest sound: TH (think / this) — 9 points in 30 days      (その他なら: Other: z — 6 points in 30 days)
     Words you missed: think, three, weather
     ▶ <動画のタイトル> (<チャンネル名>)
     https://www.youtube.com/watch?v=<id>
@@ -113,14 +123,14 @@
 
 ## 5. テスト
 
-- SQL (`supabase/tests/sounds_test.sql`): 保存の丸め (知らない sound を飛ばす・weight・word の長さ・source)、20 件まで、500 件・90 日、ほかの人に見えない、直接書けない、points の合計と順番、前の期間 (30 日は数値、90 日は null)、words の重なりなし、何度実行しても壊れない。
-- アプリのロジック (`Tests~/LogicTests`): `SoundTypes` (10 種類・表示・検索語)、`SoundGuesser` (上の規則と除外語)、発音チェックのスキーマに `sounds` (enum が SoundTypes と同じ)、`DailySoundPractice` の判断 (今日送った / 2 回失敗 / points 3 未満 / 夜 3 時の区切り)、動画の選び方 (30 日以内に送ったものを避ける)、Discord の文。
+- SQL (`supabase/tests/sounds_test.sql`): 保存の丸め (知らない sound を飛ばす・weight・word の長さ・source・other の名前のそろえ方と空の名前を飛ばす・ほかの sound の label を空に)、other は名前ごとに別の行、20 件まで、500 件・90 日、ほかの人に見えない、直接書けない、points の合計と順番、前の期間 (30 日は数値、90 日は null)、words の重なりなし、何度実行しても壊れない。
+- アプリのロジック (`Tests~/LogicTests`): `SoundTypes` (10 種類・表示・検索語、`NormalizeOtherName` の例、other の検索語)、`SoundGuesser` (上の規則と除外語)、発音チェックのスキーマに `sounds` (code の enum が SoundTypes の 10 種類 + `other` と同じ、`otherName` がある)、`DailySoundPractice` の判断 (今日送った / 2 回失敗 / points 3 未満 / 夜 3 時の区切り)、動画の選び方 (30 日以内に送ったものを避ける)、Discord の文。
 - Web (`tests/web_test.py`): 「苦手な発音」の欄、矢印、期間ボタン、HTML として入らない。
 - 画面の動き・YouTube・Discord への実際の送信は、実機で確かめる。
 
 ## やらないこと
 
-- 音の種類を自分で増やすこと (固定 10 種類)。
+- 固定の種類を画面から増やすこと (増やすときはコードを変える。想定外の音は「その他」で数える)。
 - 発音の点数付け (正確さを数値で採点すること)。
 - 日本語の解説動画 (利用者が英語ネイティブの動画を選んだ)。
 - 週ごとのまとめや、アプリを開かない日の送信 (Worker は変えない)。
