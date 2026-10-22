@@ -228,7 +228,7 @@ public class RepeatAudioPlayer : MonoBehaviour
         Touch(path);
         try
         {
-            return await LoadClipAsync(path, AudioType.MPEG);
+            return TrimClip(await LoadClipAsync(path, AudioType.MPEG));
         }
         catch (Exception)
         {
@@ -256,6 +256,20 @@ public class RepeatAudioPlayer : MonoBehaviour
         var clip = AudioClip.Create("gemini_tts", samples.Length, 1, GeminiApiClient.TtsSampleRate, false);
         clip.SetData(samples, 0);
         return clip;
+    }
+
+    // 流すときだけ、最後の雑音を切る (保存してある録音ファイルはそのまま)
+    private static AudioClip TrimClip(AudioClip clip)
+    {
+        if (clip == null || clip.channels != 1) return clip;
+        var data = new float[clip.samples];
+        if (!clip.GetData(data, 0)) return clip;
+        float[] trimmed = PcmAudio.TrimTrailingNoise(data, clip.frequency);
+        if (trimmed.Length >= data.Length) return clip;
+        var result = AudioClip.Create(clip.name, trimmed.Length, 1, clip.frequency, false);
+        result.SetData(trimmed, 0);
+        Destroy(clip);
+        return result;
     }
 
     private static async Task<AudioClip> LoadClipAsync(string path, AudioType type)
