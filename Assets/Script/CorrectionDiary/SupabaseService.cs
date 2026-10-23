@@ -120,6 +120,8 @@ public class SupabaseService : MonoBehaviour
     [Serializable] private class ImportRows { public ImportRow[] rows; }
     [Serializable] private class GetRow { public int streak; public string last_date; public bool studied_today; public int best_streak; }
     [Serializable] private class GetRows { public GetRow[] rows; }
+    [Serializable] private class WeekRow { public int weeks; public bool this_week_done; }
+    [Serializable] private class WeekRows { public WeekRow[] rows; }
 
     // ------------------------------------------------------------
     // Auth
@@ -243,6 +245,15 @@ public class SupabaseService : MonoBehaviour
         if (rows == null || rows.rows == null || rows.rows.Length == 0) return default;
         var r = rows.rows[0];
         return new StreakInfo { Streak = r.streak, LastDate = r.last_date ?? "", StudiedToday = r.studied_today, Best = r.best_streak };
+    }
+
+    /// <summary>週の連続 (月曜〜日曜。1 日でも練習した週が何週続いているか)。weeks.sql が無いサーバーでは例外</summary>
+    public async Task<(int weeks, bool thisWeekDone)> GetWeekStreakAsync()
+    {
+        string body = await RpcAsync("get_my_week_streak");
+        var rows = JsonUtility.FromJson<WeekRows>("{\"rows\":" + body + "}");
+        if (rows == null || rows.rows == null || rows.rows.Length == 0) return (0, false);
+        return (rows.rows[0].weeks, rows.rows[0].this_week_done);
     }
 
     /// <summary>今日の記録を完了にする。同じ日に何回呼んでも、加算されるのは1回だけ(サーバー側で判定)。</summary>

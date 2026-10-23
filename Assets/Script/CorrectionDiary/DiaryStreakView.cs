@@ -45,6 +45,9 @@ public class DiaryStreakView : MonoBehaviour
     [Tooltip("※ 日本語を表示するには、TextMeshPro の日本語フォントが必要。四角に化ける場合は英語に変える")]
     [SerializeField] private string badgeFormat = "{0}日連続達成中";
     [SerializeField] private string bestFormat = "Best: {0}d";
+    [Tooltip("週の連続 (Best の後ろに足す)。{0} = 週の数")]
+    [SerializeField] private string weekFormat = "  ·  {0}-week streak";
+    [SerializeField] private string weekPendingNote = " (not this week yet)";
     [SerializeField] private string messageDone = "Keep it up! {0} days of daily English voice logs";
     [SerializeField] private string messageDoneSingular = "Great start! {0} day of daily English voice logs";
     [SerializeField] private string messagePending = "Record today's diary to keep your {0}-day streak!";
@@ -156,6 +159,8 @@ public class DiaryStreakView : MonoBehaviour
                 var (info, alreadyDone) = await supabase.CompleteStudyAsync();
                 if (this == null) return added;
                 ApplyCloud(info);
+                await LoadWeekStreakAsync();   // 今週が「やった」になる
+                if (this == null) return added;
                 Refresh();
             }
             catch (Exception e)
@@ -184,6 +189,8 @@ public class DiaryStreakView : MonoBehaviour
             var info = await supabase.GetStreakAsync();
             if (this == null) return;
             ApplyCloud(info);
+            await LoadWeekStreakAsync();
+            if (this == null) return;
             Refresh();
         }
         catch (Exception e)
@@ -191,6 +198,25 @@ public class DiaryStreakView : MonoBehaviour
             Debug.LogWarning("[DiaryStreakView] cloud fetch failed (showing local): " + e.Message);
             _debugNote = "fetch FAILED: " + Short(e.Message);
             Refresh();
+        }
+    }
+
+    // 週の連続 (-1 = 読めていない。weeks.sql を実行していないサーバーなど)
+    private int _cloudWeeks = -1;
+    private bool _cloudWeekDone;
+
+    private async Task LoadWeekStreakAsync()
+    {
+        try
+        {
+            var w = await supabase.GetWeekStreakAsync();
+            _cloudWeeks = w.weeks;
+            _cloudWeekDone = w.thisWeekDone;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[DiaryStreakView] week streak not available: " + e.Message);
+            _cloudWeeks = -1;
         }
     }
 
@@ -224,7 +250,12 @@ public class DiaryStreakView : MonoBehaviour
         }
 
         if (bestText != null)
+        {
             bestText.text = Fmt(bestFormat, best);
+            // 週の連続 (ログイン中でクラウドから読めたときだけ。いつも出す)
+            if (cloud && _cloudWeeks >= 0)
+                bestText.text += Fmt(weekFormat, _cloudWeeks) + (_cloudWeeks > 0 && !_cloudWeekDone ? weekPendingNote : "");
+        }
 
         if (messageText != null)
             messageText.text = showDebug ? BuildDebug() : BuildMessage(streak, doneToday);
