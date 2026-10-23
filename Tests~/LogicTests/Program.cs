@@ -39,6 +39,7 @@ public static class LogicTests
         RepeatRpcTests();
         TrimNoiseTests();
         ShadowTests();
+        HighlightTests();
         RepeatDiscordTests();
 
         if (_failed > 0)
@@ -253,6 +254,24 @@ public static class LogicTests
         var samples = new float[seconds * rate];
         for (int i = 0; i < samples.Length; i++) samples[i] = (float)Math.Sin(i * 0.05) * 0.3f;
         return PcmAudio.ToWav(samples, 1, rate);
+    }
+
+    // 日記の添削: 直った語だけを色付きの太字にする (アプリの画面用)
+    private static void HighlightTests()
+    {
+        string h = TextDiff.HighlightChanges("i go to park yesterday", "I went to the park yesterday.", "#40c057", out int n);
+        Check(h == "I <b><color=#40c057>went</color></b> to <b><color=#40c057>the</color></b> park yesterday." && n == 2,
+              "highlight: changed and added words coloured (" + h + ", " + n + ")");
+        string same = TextDiff.HighlightChanges("I like tea", "I like tea.", "#40c057", out int n0);
+        Check(same == "I like tea." && n0 == 0, "highlight: punctuation / case only -> no colour (" + same + ")");
+        string many = TextDiff.HighlightChanges("he go school", "He goes to school every day.", "#40c057", out int n2);
+        Check(many == "He <b><color=#40c057>goes to</color></b> school <b><color=#40c057>every day</color></b>." && n2 == 4,
+              "highlight: neighbouring changes joined, punctuation outside (" + many + ")");
+        string tag = TextDiff.HighlightChanges("a b", "a <b>x</b> b", "#40c057", out _);
+        Check(!tag.Contains("<b>x</b>") && tag.Contains("<\u200B"), "highlight: '<' in the text is not read as a tag (" + tag + ")");
+        string raw = TextDiff.HighlightChanges("x", "Not_bold *here*", "#40c057", out _);
+        Check(raw.Contains("Not_bold *here") && !raw.Contains("\\"), "highlight: no Discord escaping (" + raw + ")");
+        Check(TextDiff.HighlightChanges("x", "", "#40c057", out _) == "", "highlight: empty");
     }
 
     private static void ShadowTests()

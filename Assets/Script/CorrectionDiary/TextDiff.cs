@@ -25,10 +25,22 @@ public static class TextDiff
     /// changedWords: 下線を付けた単語数。長すぎて比較できなかった場合は -1 (下線なしで返す)。
     /// 戻り値は Discord 用にエスケープ済みの文字列。
     /// </summary>
-    public static string UnderlineChanges(string original, string corrected, out int changedWords)
+    public static string UnderlineChanges(string original, string corrected, out int changedWords) =>
+        Mark(original, corrected, "__", "__", Escape, out changedWords);
+
+    /// <summary>
+    /// アプリの画面 (TextMeshPro) 用: 添削後の文のうち、直った・足された単語だけを色付きの太字にする。
+    /// 文の中の "&lt;" はタグとして読まれないようにする。changedWords は Underline と同じ
+    /// </summary>
+    public static string HighlightChanges(string original, string corrected, string colorHex, out int changedWords) =>
+        Mark(original, corrected ?? "", "<b><color=" + colorHex + ">", "</color></b>", EscapeTmp, out changedWords);
+
+    private static string Mark(string original, string corrected, string open, string close,
+                               System.Func<string, string> escape, out int changedWords)
     {
         changedWords = 0;
         if (string.IsNullOrWhiteSpace(corrected)) return corrected ?? "";
+        System.Func<string, string> Escape = escape;
 
         List<Token> cTokens = Tokenize(corrected);
 
@@ -108,9 +120,9 @@ public static class TextDiff
             while (coreEnd > coreStart && !char.IsLetterOrDigit(corrected[coreEnd - 1])) coreEnd--;
 
             sb.Append(Escape(corrected.Substring(pos, coreStart - pos)));
-            sb.Append("__");
+            sb.Append(open);
             sb.Append(Escape(corrected.Substring(coreStart, coreEnd - coreStart)));
-            sb.Append("__");
+            sb.Append(close);
             sb.Append(Escape(corrected.Substring(coreEnd, spanEnd - coreEnd)));
 
             changedWords += end - t + 1;
@@ -162,6 +174,9 @@ public static class TextDiff
             if (text[i] == '\n') return true;
         return false;
     }
+
+    // TextMeshPro のタグとして読まれないように、"<" の後ろに幅の無い空白を入れる
+    private static string EscapeTmp(string s) => string.IsNullOrEmpty(s) ? "" : s.Replace("<", "<\u200B");
 
     // 日記の本文に含まれる * _ ~ ` | が、意図しない装飾にならないようにする
     private static string Escape(string s)

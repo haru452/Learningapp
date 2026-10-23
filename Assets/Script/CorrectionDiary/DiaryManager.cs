@@ -449,6 +449,16 @@ public class DiaryManager : MonoBehaviour
         return (text ?? "").Trim();
     }
 
+    // 添削後の文で、直った・足された単語だけを緑の太字にする (どこが直ったか分かるように)
+    private const string ChangeColor = "#40c057";
+
+    private void ShowCorrected(string original, string corrected)
+    {
+        if (correctedText == null) return;
+        correctedText.richText = true;
+        correctedText.text = TextDiff.HighlightChanges(original, corrected, ChangeColor, out _);
+    }
+
     private async Task CorrectAsync(string text)
     {
         string corrected;
@@ -462,14 +472,14 @@ public class DiaryManager : MonoBehaviour
             corrected = result.corrected;
             explanation = result.explanation;
             mistakes = result.mistakes;
-            correctedText.text = corrected;
+            ShowCorrected(text, corrected);
             if (explanationText != null) explanationText.text = explanation;
         }
         else
         {
             SetStatus("Polishing with DeepL Write...");
             corrected = await _deepl.RephraseAsync(text);
-            correctedText.text = corrected;
+            ShowCorrected(text, corrected);
         }
 
         _pendingText = null;   // 添削は成功したので、添削の再試行は不要
