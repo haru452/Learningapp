@@ -248,7 +248,7 @@ public class ShadowUi
         textGo.transform.SetParent(prt, false);
         var text = textGo.AddComponent<TextMeshProUGUI>();
         if (_textTemplate != null) text.font = _textTemplate.font;
-        text.text = "\U0001F3A7 " + PopupMessage;
+        text.text = PopupMessage;
         text.fontSize = 34;
         text.enableAutoSizing = true;
         text.fontSizeMin = 20;
