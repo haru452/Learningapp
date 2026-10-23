@@ -27,6 +27,9 @@ public class YouTubePlayerView : MonoBehaviour
     /// <summary>動画の再生が始まった (一時停止からの再開でも来る)</summary>
     public event Action OnPlaying;
 
+    /// <summary>再生位置 (秒)。再生中は 1 秒ごとに来る</summary>
+    public event Action<double> OnTime;
+
     /// <summary>プレーヤーのエラー (YouTube のエラー番号など)</summary>
     public event Action<string> OnError;
 #pragma warning restore 0067, 0169, 0414
@@ -90,6 +93,11 @@ public class YouTubePlayerView : MonoBehaviour
     {
         if (msg == "ended") OnEnded?.Invoke();
         else if (msg == "playing") OnPlaying?.Invoke();
+        else if (msg.StartsWith("time:"))
+        {
+            if (double.TryParse(msg.Substring(5), System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double t)) OnTime?.Invoke(t);
+        }
         else if (msg.StartsWith("error:"))
         {
             Debug.LogWarning("[YouTubePlayerView] Player " + msg);
@@ -141,8 +149,13 @@ function notify(msg) {
     window.webkit.messageHandlers.unityControl.postMessage(msg);
   }
 }
+var player;
+setInterval(function () {
+  if (player && player.getCurrentTime && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING)
+    notify('time:' + player.getCurrentTime());
+}, 1000);
 function onYouTubeIframeAPIReady() {
-  new YT.Player('player', {
+  player = new YT.Player('player', {
     width: '100%', height: '100%', videoId: '" + videoId + @"',
     playerVars: { playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, origin: '" + origin + @"' },
     events: {

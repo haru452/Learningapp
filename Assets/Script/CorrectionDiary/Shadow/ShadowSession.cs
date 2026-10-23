@@ -42,6 +42,7 @@ public class ShadowSession
     public State Current { get; private set; } = State.Idle;
     public bool CanSwitchMode => Current == State.Idle || Current == State.Summary;
     public bool IsRunning => Current != State.Idle && Current != State.Summary;
+    public bool IsPlayingVideo => Current == State.WaitingToPlay || Current == State.Shadowing;
     public event Action StateChanged;
 
     private readonly View _v;
@@ -57,6 +58,8 @@ public class ShadowSession
     private CancellationTokenSource _cts;
     private CancellationTokenSource _replayCts;
     private AudioClip _myVoice;
+    private byte[] _myVoiceWav;   // 「My voice」を押したときに AudioClip にする (メモリを使いすぎないように)
+    private double _videoTime;
     private bool _playing, _ended, _stopRequested;
     private string _playError;
 
@@ -70,6 +73,7 @@ public class ShadowSession
         _save = save; _sendDiscord = sendDiscord; _countStudyDay = countStudyDay;
         _video.OnPlaying += () => _playing = true;
         _video.OnEnded += () => _ended = true;
+        _video.OnTime += t => _videoTime = Math.Max(_videoTime, t);
         _video.OnError += msg => _playError = msg;
         _v.Ui.SearchRequested += q => _ = SearchAsync(q);
         _v.Ui.VideoChosen += _ => ShowIdle();
@@ -101,12 +105,14 @@ public class ShadowSession
     public void OnSpeak()   // Stop
     {
         if (Current == State.Shadowing) _stopRequested = true;                     // そこまでで判定する
-        else if (Current == State.WaitingToPlay) Cancel("Stopped. Tap \"Start\" to try again.");
+        else if (Current == State.WaitingToPlay || Current == State.Preparing) Cancel("Stopped. Tap \"Start\" to try again.");
     }
 
     public async void OnAgain()   // My voice
     {
-        if (Current != State.Summary || _myVoice == null) return;
+        if (Current != State.Summary || (_myVoice == null && _myVoiceWav == null)) return;
+        if (_myVoice == null) _myVoice = ToClip(_myVoiceWav);
+        if (_myVoice == null) return;
         _replayCts?.Cancel();
         _audio.Stop();
         var cts = _replayCts = new CancellationTokenSource();
@@ -217,6 +223,7 @@ public class ShadowSession
         try
         {
             _playing = _ended = _stopRequested = false;
+            _videoTime = 0;
             _playError = null;
             _v.Ui.ShowVideo(true);
             await Task.Yield();   // 枠の大きさが決まってから WebView を置く
@@ -279,11 +286,11 @@ public class ShadowSession
         try
         {
             var parts = WavSplitter.Split(wav, SplitSeconds);
-            string reference = string.Join(" ", script);
             for (int i = 0; i < parts.Count; i++)
             {
                 SetStatus("Checking... (" + (i + 1) + " / " + parts.Count + ")");
-                var r = await _gemini.TranscribeShadowingAsync(parts[i], reference);
+                var r = await _gemini.TranscribeShadowingAsync(parts[i], ShadowScript.ReferenceSlice(script, i, parts.Count));
+                parts[i] = null;   // 送った分はメモリから外す
                 if (ct.IsCancellationRequested) return;
                 heard.Append(r.transcript).Append(' ');
                 notes.AddRange(r.notes);
@@ -298,7 +305,7 @@ public class ShadowSession
             return;
         }
 
-        double fraction = video.durationSeconds > 0 ? recorded / video.durationSeconds : 1;
+        double fraction = ShadowScript.Fraction(_videoTime, recorded, video.durationSeconds, _ended);
         var sentences = ShadowScript.SentencesUpTo(script, fraction);
         var score = ShadowScorer.Score(sentences, heard.ToString());
         if (score.empty)
@@ -319,6 +326,7 @@ public class ShadowSession
         if (ct.IsCancellationRequested) return;
         SetLoading(false);
         SetMyVoice(wav);
+        wav = null;
         await FinishAsync(video, score.scores, score.average, advice);
     }
 
@@ -357,16 +365,22 @@ public class ShadowSession
     {
         if (_myVoice != null) UnityEngine.Object.Destroy(_myVoice);
         _myVoice = null;
-        // AudioRecorder の WAV: 44 バイトのヘッダー + 16bit PCM
-        if (wav == null || wav.Length <= 44) return;
+        _myVoiceWav = wav;
+    }
+
+    // AudioRecorder の WAV: 44 バイトのヘッダー + 16bit PCM
+    private static AudioClip ToClip(byte[] wav)
+    {
+        if (wav == null || wav.Length <= 44) return null;
         int rate = BitConverter.ToInt32(wav, 24);
         int channels = BitConverter.ToInt16(wav, 22);
         var pcm = new byte[wav.Length - 44];
         Buffer.BlockCopy(wav, 44, pcm, 0, pcm.Length);
         float[] samples = PcmAudio.Pcm16ToFloats(pcm);
-        if (samples.Length == 0 || rate <= 0 || channels <= 0) return;
-        _myVoice = AudioClip.Create("my_voice", samples.Length / channels, channels, rate, false);
-        _myVoice.SetData(samples, 0);
+        if (samples.Length == 0 || rate <= 0 || channels <= 0) return null;
+        var clip = AudioClip.Create("my_voice", samples.Length / channels, channels, rate, false);
+        clip.SetData(samples, 0);
+        return clip;
     }
 
     private void SetState(State s)
@@ -376,11 +390,13 @@ public class ShadowSession
         _v.MainButton.interactable = idle && _v.Ui.Video != null;
         if (_v.MainLabel != null) _v.MainLabel.text = idle ? "Start" : "...";
 
-        bool stop = s == State.WaitingToPlay || s == State.Shadowing;
+        bool stop = s == State.Preparing || s == State.WaitingToPlay || s == State.Shadowing;
         if (_v.SpeakButton != null) { _v.SpeakButton.gameObject.SetActive(stop); _v.SpeakButton.interactable = true; }
         if (_v.SpeakLabel != null) _v.SpeakLabel.text = "Stop";
 
-        SetButton(_v.AgainButton, s == State.Summary && _myVoice != null, "My voice");
+        SetButton(_v.AgainButton, s == State.Summary && (_myVoice != null || _myVoiceWav != null), "My voice");
+        if (_v.Sentence != null) _v.Sentence.gameObject.SetActive(false);   // シャドーイングでは使わない (場所を空ける)
+        _v.Ui.SetSearchVisible(idle);
         if (_v.SlowButton != null) _v.SlowButton.gameObject.SetActive(false);
         _v.Ui.SetInteractable(idle);
         StateChanged?.Invoke();

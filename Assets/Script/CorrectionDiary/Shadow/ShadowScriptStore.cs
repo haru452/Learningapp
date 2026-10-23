@@ -56,6 +56,7 @@ public static class ShadowScriptStore
         }
         foreach (string key in new[] { "shadow_progress_v1", "shadow_slow_on" })
             if (PlayerPrefs.HasKey(key)) PlayerPrefs.DeleteKey(key);
+        PlayerPrefs.Save();
     }
 
     private static string SafeId(string id) => new string((id ?? "").Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-').ToArray());

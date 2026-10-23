@@ -167,6 +167,7 @@ public class RepeatPracticeManager : MonoBehaviour
             bool wasShadow = _shadowShown;
             _shadowShown = false;
             if (!wasShadow && _state != State.Idle) return;   // 画面を開いたとき (リピーティングのまま)
+            if (sentenceText != null) sentenceText.gameObject.SetActive(true);
             SetButtonLabel(againButton, "Again");
             SetButtonLabel(slowButton, "Slow");
             ShowSentence(null);
@@ -219,7 +220,8 @@ public class RepeatPracticeManager : MonoBehaviour
     // 電話・ほかのアプリへの切り替えでシャドーイングが止まったら、録音を捨てて最初から (保存しない)
     private void OnApplicationPause(bool paused)
     {
-        if (paused && ShadowMode && _shadow.IsRunning) _shadow.Cancel("Interrupted. Tap \"Start\" to try again.");
+        // 動画を流している間だけ (書き起こしの待ち時間・マイクの許可の画面では止めない)
+        if (paused && ShadowMode && _shadow.IsPlayingVideo) _shadow.Cancel("Interrupted. Tap \"Start\" to try again.");
     }
 
     // ------------------------------------------------------------

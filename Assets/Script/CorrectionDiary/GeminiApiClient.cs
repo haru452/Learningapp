@@ -531,8 +531,9 @@ public class GeminiApiClient
     public async Task<string> TranscribeVideoAsync(string youtubeUrl)
     {
         if (string.IsNullOrWhiteSpace(youtubeUrl)) throw new ArgumentException("No video.", nameof(youtubeUrl));
-        return await GeneratePartsAsync(YouTubePart(youtubeUrl) + "," + TextPart(VideoScriptPrompt), VideoScriptSchema,
-                                        "\"temperature\":0.1", AudioGradeTimeoutSeconds);
+        // 文字起こしに必要なのは音声だけ: 映像は少ないコマ・低い解像度にして、使う量 (トークン) を抑える
+        return await GeneratePartsAsync(YouTubePart(youtubeUrl, VideoFps) + "," + TextPart(VideoScriptPrompt), VideoScriptSchema,
+                                        "\"mediaResolution\":\"MEDIA_RESOLUTION_LOW\",\"temperature\":0.1", AudioGradeTimeoutSeconds);
     }
 
     private const string ShadowTranscriptPrompt =

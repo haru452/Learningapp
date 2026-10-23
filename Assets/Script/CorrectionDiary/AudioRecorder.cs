@@ -84,7 +84,8 @@ public class AudioRecorder : MonoBehaviour
             return false;
         }
 
-        _clip = Microphone.Start(null, false, maxSeconds, sampleRate);
+        // 録音の器は上限より少し長くする (上限で止める前に器がいっぱいになると、録音が取り出せなくなる)
+        _clip = Microphone.Start(null, false, maxSeconds + 5, sampleRate);
         if (_clip == null)
         {
             Debug.LogWarning("[AudioRecorder] Microphone.Start failed.");
@@ -101,8 +102,11 @@ public class AudioRecorder : MonoBehaviour
     {
         if (!IsRecording) return null;
 
+        bool stillRecording = Microphone.IsRecording(null);
         int position = Microphone.GetPosition(null);
         Microphone.End(null);
+        // 器がいっぱいになって止まっていた: 全部を使う
+        if (position <= 0 && !stillRecording && _clip != null) position = _clip.samples;
         IsRecording = false;
 
         if (_clip == null || position <= 0) return null;

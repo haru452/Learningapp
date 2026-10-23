@@ -128,6 +128,9 @@ public class ShadowUi
 
     public void HideCandidates() => ShowCandidates(null);
 
+    /// <summary>練習中は検索欄を隠す (動画とボタンの場所を空ける)</summary>
+    public void SetSearchVisible(bool on) => _searchRow.SetActive(ShadowOn && on);
+
     /// <summary>動画を出す枠を広げる / 閉じる (16:9)</summary>
     public void ShowVideo(bool on)
     {
