@@ -1,41 +1,22 @@
 # 公開するときのメモ（記事・GitHub のリンク）
 
-## BBC 関連の機能は、記事に載せる GitHub のリンクに含めない
+## シャドーイング
 
-シャドーイング（BBC Learning English「6 Minute English」の音声を使う機能）は**個人の学習用**です。
-BBC の規約・AI での利用への方針がはっきりしないため、**記事に載せる GitHub のリポジトリ（リンク先）には BBC 関連の機能を入れない**。
+シャドーイングは YouTube の動画を使う機能（2026-10-23 に BBC の音声を使う版から置き換え）。
+動画は YouTube 公式の埋め込みプレーヤーで流すだけで音声は保存せず、文字起こしは Gemini が YouTube の URL から作る。
+**記事にも公開のコードにも含めてよい**。ただし次のことを守る：
 
-- BBC の音声・切り出し結果・録音は、もともとスマホの中（`persistentDataPath/shadow/`）だけで、git には入っていない
-- ただし**コード**（BBC のフィードの URL、音声を Gemini に送る処理など）は git に入っている
-- APK は配らない
+- 動画の文字起こし（お手本）、自分の録音、Discord に届いた内容を記事やリポジトリに載せない
+- 特定の動画の英文を引用しない（「YouTube の英語の動画で練習できる」くらいにとどめる）
+- API のキー（`Assets/Resources/ApiSecrets.json`）を載せない（git に入らない設定済み）
+- 個人の学習用の機能であることを書く
 
-### 記事での書き方
+## 公開用のリポジトリ
 
-記事には、シャドーイングの機能があることだけを一言書く（素材・仕組み・BBC の名前などの詳しいことは書かない）。例：
-
-> ※ このアプリには、この記事では紹介していないシャドーイングの練習機能もあります（個人用のため、公開しているコードには含めていません）。
-
-### 公開用に外すもの
-
-Unity（`My project`）
-- `Assets/Script/CorrectionDiary/Shadow/` のフォルダ全部（BbcFeed, ShadowChunker, ShadowScorer, EarphoneCheck, EarphoneCheckDevice, ShadowEpisodeStore, ShadowUi, ShadowSession, ShadowFailure と .meta）
-- `Repeat/RepeatPracticeManager.cs` のシャドーイングの部分（`ShadowUi` / `ShadowSession` / `OnApplicationPause` / `SendShadowToDiscordAsync`）
-- `Repeat/RepeatAudioPlayer.cs` の `MakeSegment`
-- `GeminiApiClient.cs` の `ShadowSegmentPrompt` / `ShadowSegmentSchema` / `SegmentEpisodeAsync`
-- `Talk3D/DiscordClient.cs` の `SendShadowResultsAsync` / `ShadowMessage`
-- `Tests~/LogicTests/Program.cs` の `ShadowTests`
-- `README.md` の「シャドーイング」の節
-- `docs/superpowers/specs/2026-10-22-shadowing-design.md`、`docs/superpowers/plans/2026-10-22-shadowing.md`
-
-Web（`database_learnApp`）
-- `index.html` の使い方の「シャドーイング」の行と、BBC の注記
-- （`supabase/repeat.sql` の `mode` 列・`bbc` は残しても BBC の内容は含まないが、気になるなら外す）
-
-### 注意：ファイルを消すだけでは足りない
-
-git の**履歴**に BBC 関連のコードが残っている。今のリポジトリをそのまま公開すると、過去のコミットから見えてしまう。
+前の版（BBC の音声を使うシャドーイング）のコードが git の**履歴**に残っている。今のリポジトリをそのまま公開すると、過去のコミットから見えてしまう。
 公開するときは次のどちらかにする：
-1. **公開用の新しいリポジトリ**を作り、上のものを外した最新のファイルだけを 1 回のコミットで入れる（おすすめ）
+1. **公開用の新しいリポジトリ**を作り、最新のファイルだけを 1 回のコミットで入れる（おすすめ）
+   - `docs/superpowers/specs/2026-10-22-shadowing-design.md`、`docs/superpowers/plans/2026-10-22-shadowing.md`（BBC 版の設計・計画）は入れない
 2. 履歴から消す（`git filter-repo` など。手間がかかり、間違えやすい）
 
 Tatoeba のデータ（`Assets/Resources/RepeatSentences.json` など）も、これまで通り公開しない。

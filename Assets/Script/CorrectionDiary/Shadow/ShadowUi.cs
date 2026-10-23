@@ -1,64 +1,140 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Repeat 画面に、実行時に「Shadowing: On/Off」「Slow: On/Off」のボタンと、イヤホンのポップアップを足す
-/// (エディタのツールで画面を作り直さなくてよいように、Start ボタンを複製して作る)。選んだ状態は端末に覚える。
+/// Repeat 画面に、実行時に「Shadowing: On/Off」のボタン、動画の検索欄と候補、動画の表示枠、イヤホンのポップアップを足す
+/// (エディタのツールで画面を作り直さなくてよいように、Start ボタンを複製して作る)。選んだ状態・動画は端末に覚える。
 /// </summary>
 public class ShadowUi
 {
     private const string ShadowPrefsKey = "shadow_mode_on";
-    private const string SlowPrefsKey = "shadow_slow_on";
+    private const string VideoPrefsKey = "shadow_video_v1";
     public const string PopupMessage =
         "Please use earphones for shadowing. If the phone speaker is used, the microphone hears it and the result will be wrong.";
 
     public bool ShadowOn { get; private set; }
-    public bool SlowOn { get; private set; }
-    public event Action Changed;
+    public YouTubeSearchClient.Video Video { get; private set; }
+    public RectTransform VideoArea { get; }
 
-    private readonly Button _shadowButton;
-    private readonly Button _slowButton;
-    private readonly TMP_Text _shadowLabel;
-    private readonly TMP_Text _slowLabel;
+    public event Action Changed;                                   // Shadowing のオン・オフ
+    public event Action<string> SearchRequested;
+    public event Action<YouTubeSearchClient.Video> VideoChosen;
+
     private readonly Button _template;
     private readonly TMP_Text _textTemplate;
+    private readonly Button _shadowButton;
+    private readonly TMP_Text _shadowLabel;
+    private readonly GameObject _searchRow;
+    private readonly TMP_InputField _input;
+    private readonly Button _searchButton;
+    private readonly GameObject _candidates;
+    private readonly LayoutElement _videoLayout;
     private GameObject _popup;
     private TaskCompletionSource<bool> _answer;
+
+    [Serializable] private class SavedVideo { public string id; public string title; public string channel; public int durationSeconds; }
 
     public ShadowUi(Button template, TMP_Text textTemplate)
     {
         _template = template;
         _textTemplate = textTemplate;
         ShadowOn = PlayerPrefs.GetInt(ShadowPrefsKey, 0) == 1;
-        SlowOn = PlayerPrefs.GetInt(SlowPrefsKey, 0) == 1;
-
-        // Root (Start ボタンの親) の先頭に 1 行足す
+        Video = LoadVideo();
         Transform root = template.transform.parent;
-        var row = new GameObject("ShadowRow", typeof(RectTransform));
-        row.transform.SetParent(root, false);
-        row.transform.SetSiblingIndex(0);
-        var hlg = row.AddComponent<HorizontalLayoutGroup>();
-        hlg.spacing = 16;
-        hlg.childControlWidth = hlg.childControlHeight = true;
-        hlg.childForceExpandWidth = hlg.childForceExpandHeight = true;
-        var le = row.AddComponent<LayoutElement>();
-        le.preferredHeight = 90;
 
+        // 1 行目: Shadowing: On/Off
+        var row = NewRow(root, "ShadowRow", 90);
+        row.transform.SetSiblingIndex(0);
         (_shadowButton, _shadowLabel) = CloneButton(row.transform, "ShadowingButton");
-        (_slowButton, _slowLabel) = CloneButton(row.transform, "ShadowSlowButton");
-        _shadowButton.onClick.AddListener(() => { ShadowOn = !ShadowOn; Save(); Refresh(); Changed?.Invoke(); });
-        _slowButton.onClick.AddListener(() => { SlowOn = !SlowOn; Save(); Refresh(); Changed?.Invoke(); });
+        _shadowButton.onClick.AddListener(() =>
+        {
+            ShadowOn = !ShadowOn;
+            PlayerPrefs.SetInt(ShadowPrefsKey, ShadowOn ? 1 : 0);
+            PlayerPrefs.Save();
+            Refresh();
+            Changed?.Invoke();
+        });
+
+        // 2 行目: 検索欄 + Search
+        _searchRow = NewRow(root, "ShadowSearchRow", 90);
+        _searchRow.transform.SetSiblingIndex(1);
+        var inputGo = TMP_DefaultControls.CreateInputField(new TMP_DefaultControls.Resources());
+        inputGo.name = "ShadowSearchInput";
+        inputGo.transform.SetParent(_searchRow.transform, false);
+        inputGo.AddComponent<LayoutElement>().flexibleWidth = 3;
+        _input = inputGo.GetComponent<TMP_InputField>();
+        _input.lineType = TMP_InputField.LineType.SingleLine;
+        foreach (var t in inputGo.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (_textTemplate != null) t.font = _textTemplate.font;
+            t.fontSize = 30;
+        }
+        if (_input.placeholder is TMP_Text ph) ph.text = "Video title";
+        _input.onSubmit.AddListener(_ => RequestSearch());
+        TMP_Text searchLabel;
+        (_searchButton, searchLabel) = CloneButton(_searchRow.transform, "ShadowSearchButton");
+        searchLabel.text = "Search";
+        _searchButton.onClick.AddListener(RequestSearch);
+
+        // 候補 (最大 5)
+        _candidates = new GameObject("ShadowCandidates", typeof(RectTransform));
+        _candidates.transform.SetParent(root, false);
+        _candidates.transform.SetSiblingIndex(2);
+        var vlg = _candidates.AddComponent<VerticalLayoutGroup>();
+        vlg.spacing = 8;
+        vlg.childControlWidth = vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+        _candidates.SetActive(false);
+
+        // 動画の表示枠 (WebView はこの位置に重なる)
+        var area = new GameObject("ShadowVideoArea", typeof(RectTransform));
+        area.transform.SetParent(root, false);
+        area.transform.SetSiblingIndex(3);
+        VideoArea = (RectTransform)area.transform;
+        _videoLayout = area.AddComponent<LayoutElement>();
+        ShowVideo(false);
+
         Refresh();
     }
 
-    /// <summary>切り替えられるのは練習していないとき (Idle・まとめ) だけ</summary>
+    /// <summary>練習していないとき (Idle・まとめ) だけ切り替え・検索できる</summary>
     public void SetInteractable(bool on)
     {
         _shadowButton.interactable = on;
-        _slowButton.interactable = on;
+        _searchButton.interactable = on;
+        _input.interactable = on;
+        foreach (var b in _candidates.GetComponentsInChildren<Button>(true)) b.interactable = on;
+    }
+
+    public void ShowCandidates(IList<YouTubeSearchClient.Video> videos)
+    {
+        foreach (Transform c in _candidates.transform) UnityEngine.Object.Destroy(c.gameObject);
+        foreach (var v in videos ?? new List<YouTubeSearchClient.Video>())
+        {
+            var (b, label) = CloneButton(_candidates.transform, "Candidate");
+            var le = b.GetComponent<LayoutElement>() ?? b.gameObject.AddComponent<LayoutElement>();
+            le.preferredHeight = 80;
+            label.text = Escape(v.title) + " — " + Escape(v.channel) + " (" + YouTubeSearchClient.FormatDuration(v.durationSeconds) + ")";
+            var chosen = v;
+            b.onClick.AddListener(() => Choose(chosen));
+        }
+        _candidates.SetActive(videos != null && videos.Count > 0);
+    }
+
+    public void HideCandidates() => ShowCandidates(null);
+
+    /// <summary>動画を出す枠を広げる / 閉じる (16:9)</summary>
+    public void ShowVideo(bool on)
+    {
+        float width = ((RectTransform)_template.transform.parent).rect.width - 48;
+        _videoLayout.preferredHeight = on ? Mathf.Max(300, width * 9f / 16f) : 0;
+        _videoLayout.minHeight = on ? 300 : 0;
+        LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_template.transform.parent);
     }
 
     /// <summary>イヤホンを使うよう促す。Start anyway → true、Cancel → false</summary>
@@ -70,7 +146,6 @@ public class ShadowUi
         return _answer.Task;
     }
 
-    /// <summary>ポップアップを閉じる (タブの移動など)。待っている側には answer を返す</summary>
     public void CloseEarphonePopup(bool answer)
     {
         if (_popup != null) UnityEngine.Object.Destroy(_popup);
@@ -80,18 +155,51 @@ public class ShadowUi
     }
 
     // ------------------------------------------------------------
+    private void RequestSearch()
+    {
+        string q = (_input.text ?? "").Trim();
+        if (q.Length > 0) SearchRequested?.Invoke(q);
+    }
+
+    private void Choose(YouTubeSearchClient.Video v)
+    {
+        Video = v;
+        PlayerPrefs.SetString(VideoPrefsKey, JsonUtility.ToJson(new SavedVideo
+            { id = v.id, title = v.title, channel = v.channel, durationSeconds = v.durationSeconds }));
+        PlayerPrefs.Save();
+        HideCandidates();
+        VideoChosen?.Invoke(v);
+    }
+
+    private static YouTubeSearchClient.Video LoadVideo()
+    {
+        try
+        {
+            var s = JsonUtility.FromJson<SavedVideo>(PlayerPrefs.GetString(VideoPrefsKey, ""));
+            if (s != null && !string.IsNullOrEmpty(s.id) && s.durationSeconds > 0)
+                return new YouTubeSearchClient.Video { id = s.id, title = s.title, channel = s.channel, durationSeconds = s.durationSeconds };
+        }
+        catch (Exception) { }
+        return null;
+    }
+
     private void Refresh()
     {
         _shadowLabel.text = "Shadowing: " + (ShadowOn ? "On" : "Off");
-        _slowLabel.text = "Slow: " + (SlowOn ? "On" : "Off");
-        _slowButton.gameObject.SetActive(ShadowOn);   // Slow はシャドーイングのときだけ
+        _searchRow.SetActive(ShadowOn);
+        if (!ShadowOn) { HideCandidates(); ShowVideo(false); }
     }
 
-    private void Save()
+    private static GameObject NewRow(Transform parent, string name, float height)
     {
-        PlayerPrefs.SetInt(ShadowPrefsKey, ShadowOn ? 1 : 0);
-        PlayerPrefs.SetInt(SlowPrefsKey, SlowOn ? 1 : 0);
-        PlayerPrefs.Save();
+        var row = new GameObject(name, typeof(RectTransform));
+        row.transform.SetParent(parent, false);
+        var hlg = row.AddComponent<HorizontalLayoutGroup>();
+        hlg.spacing = 16;
+        hlg.childControlWidth = hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = hlg.childForceExpandHeight = true;
+        row.AddComponent<LayoutElement>().preferredHeight = height;
+        return row;
     }
 
     private (Button, TMP_Text) CloneButton(Transform parent, string name)
@@ -106,6 +214,8 @@ public class ShadowUi
         if (le != null) { le.preferredHeight = -1; le.minHeight = -1; }
         return (button, go.GetComponentInChildren<TMP_Text>(true));
     }
+
+    private static string Escape(string s) => (s ?? "").Replace("<", "<​");
 
     private GameObject CreatePopup()
     {

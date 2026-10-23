@@ -120,7 +120,7 @@ public class RepeatPracticeManager : MonoBehaviour
     {
         mainButton.onClick.AddListener(OnMainClicked);
         if (againButton != null) againButton.onClick.AddListener(() => { if (ShadowMode) _shadow.OnAgain(); else _ = ReplayAsync(false); });
-        if (slowButton != null) slowButton.onClick.AddListener(() => { if (ShadowMode) _shadow.OnSlow(); else _ = ReplayAsync(true); });
+        if (slowButton != null) slowButton.onClick.AddListener(() => { if (!ShadowMode) _ = ReplayAsync(true); });
         if (speakButton != null) speakButton.onClick.AddListener(OnSpeakClicked);
         nativeStt.OnPartialResult += OnNativePartial;
         nativeStt.OnSessionEnded += OnNativeSessionEnded;
@@ -134,14 +134,18 @@ public class RepeatPracticeManager : MonoBehaviour
         SetState(State.Idle);
         SetStatus("Tap \"Start\". Listen to a sentence, then say it back.");
 
+        ShadowScriptStore.DeleteOldBbcData();   // 前の版 (BBC) の音声などを消す
         _shadowUi = new ShadowUi(mainButton, statusText);
+        var video = GetComponent<YouTubePlayerView>();
+        if (video == null) video = gameObject.AddComponent<YouTubePlayerView>();
+        var youtube = new YouTubeSearchClient(ApiSecrets.Data.youtubeApiKey);
         _shadow = new ShadowSession(new ShadowSession.View
             {
                 MainButton = mainButton, MainLabel = mainButtonLabel, SpeakButton = speakButton, SpeakLabel = speakButtonLabel,
                 AgainButton = againButton, SlowButton = slowButton, Header = headerText, Sentence = sentenceText,
                 Result = resultText, Status = statusText, Credit = creditText, Loading = loadingIndicator, Ui = _shadowUi,
             },
-            player, recorder, _gemini, SaveAsync, SendShadowToDiscordAsync,
+            player, video, youtube, recorder, _gemini, SaveAsync, SendShadowToDiscordAsync,
             () => { var d = FindDiary(); if (d != null) d.CountOtherPracticeAsStudyDay(); });
         _shadowUi.Changed += ApplyMode;
         _shadow.StateChanged += RefreshModeButtons;
@@ -151,7 +155,7 @@ public class RepeatPracticeManager : MonoBehaviour
     // Shadowing のオン・オフ (切り替えられるのは練習していないときだけ)
     private void ApplyMode()
     {
-        if (ShadowMode == _shadowShown && _shadowShown) return;   // Slow だけ変わった
+        if (ShadowMode == _shadowShown && _shadowShown) return;
         if (ShadowMode)
         {
             _shadowShown = true;
@@ -585,12 +589,13 @@ public class RepeatPracticeManager : MonoBehaviour
         }
     }
 
-    private async Task<string> SendShadowToDiscordAsync(string episodeTitle, List<RepeatResult> results)
+    private async Task<string> SendShadowToDiscordAsync(YouTubeSearchClient.Video video, int average, string advice,
+                                                        List<ShadowScorer.SentenceScore> scores)
     {
         if (!sendToDiscord || !_discord.IsConfigured) return null;
         try
         {
-            await _discord.SendShadowResultsAsync(DateTime.Now, episodeTitle, results);
+            await _discord.SendShadowResultsAsync(DateTime.Now, video.title, video.WatchUrl, average, advice, scores);
             return null;
         }
         catch (Exception e)

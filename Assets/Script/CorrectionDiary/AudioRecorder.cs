@@ -20,6 +20,13 @@ public class AudioRecorder : MonoBehaviour
 
     public bool IsRecording { get; private set; }
 
+    /// <summary>録音の上限 (秒)。シャドーイングでは動画の長さ + 30 秒にする (Unity の上限は 1 時間)</summary>
+    public int MaxSeconds
+    {
+        get => maxSeconds;
+        set => maxSeconds = Mathf.Clamp(value, 1, 3599);
+    }
+
     /// <summary>最大録音時間に達したとき</summary>
     public event Action OnMaxDurationReached;
 

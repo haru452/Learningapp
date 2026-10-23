@@ -1,5 +1,7 @@
 # シャドーイング (Repeat 画面のモード) — 設計
 
+> **置き換えられた設計**: 2026-10-23 に YouTube 版 (`2026-10-23-youtube-shadowing-design.md`) に置き換えた。この BBC 版は使っていない。
+
 日付: 2026-10-22
 対象: Unity アプリ (`My project`)、Web (`database_learnApp`)、Supabase
 

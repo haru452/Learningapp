@@ -173,12 +173,13 @@ public class DiscordClient
         return AppendResultLines(sb, results);
     }
 
-    /// <summary>シャドーイング 1 回分 (5 文) の結果を送る (リピーティングと同じチャンネル)</summary>
-    public async Task SendShadowResultsAsync(DateTime date, string episodeTitle, IList<RepeatResult> results)
+    /// <summary>シャドーイング 1 回分 (動画 1 本) の結果を送る (リピーティングと同じチャンネル、長いときは分けて送る)</summary>
+    public async Task SendShadowResultsAsync(DateTime date, string videoTitle, string videoUrl, int average, string advice,
+                                             IList<ShadowScorer.SentenceScore> scores)
     {
         if (!IsConfigured)
             throw new InvalidOperationException("Discord is not configured.");
-        List<string> chunks = Split(ShadowMessage(date, episodeTitle, results), MaxMessageLength);
+        List<string> chunks = Split(ShadowMessage(date, videoTitle, videoUrl, average, advice, scores), MaxMessageLength);
         for (int i = 0; i < chunks.Count; i++)
         {
             await PostAsync(chunks[i]);
@@ -187,18 +188,23 @@ public class DiscordClient
         }
     }
 
-    /// <summary>シャドーイングのメッセージ: 回のタイトル、平均、文ごとの一致率 (リピーティングと同じ形)</summary>
-    public static string ShadowMessage(DateTime date, string episodeTitle, IList<RepeatResult> results)
+    /// <summary>シャドーイングのメッセージ: 動画・平均・アドバイス・文ごとの一致率 (80% 以上 ✅、未満 ⚠️)</summary>
+    public static string ShadowMessage(DateTime date, string videoTitle, string videoUrl, int average, string advice,
+                                       IList<ShadowScorer.SentenceScore> scores)
     {
-        results = results ?? new List<RepeatResult>();
-        int average = results.Count == 0 ? 0
-            : (int)Math.Round(results.Average(r => r.accuracy), MidpointRounding.AwayFromZero);
         var sb = new System.Text.StringBuilder();
         sb.Append("\U0001F3A7 **Shadowing - ").Append(date.ToString("yyyy-MM-dd HH:mm")).Append("**\n");
-        if (!string.IsNullOrWhiteSpace(episodeTitle))
-            sb.Append("6 Minute English: ").Append(episodeTitle.Trim()).Append('\n');
+        if (!string.IsNullOrWhiteSpace(videoTitle)) sb.Append(videoTitle.Trim()).Append('\n');
+        if (!string.IsNullOrWhiteSpace(videoUrl)) sb.Append('<').Append(videoUrl.Trim()).Append(">\n");   // 埋め込みを出さない
         sb.Append("Average: ").Append(average).Append("%\n");
-        return AppendResultLines(sb, results);
+        if (!string.IsNullOrWhiteSpace(advice)) sb.Append("**Advice**\n").Append(advice.Trim()).Append("\n\n");
+        foreach (var s in scores ?? new List<ShadowScorer.SentenceScore>())
+        {
+            bool ok = s.Accuracy >= 80;
+            sb.Append(ok ? "\u2705" : "\u26A0\uFE0F").Append(' ')
+              .Append(s.Accuracy.ToString().PadLeft(3)).Append("%  ").Append((s.Text ?? "").Trim()).Append('\n');
+        }
+        return sb.ToString().TrimEnd();
     }
 
     private static string AppendResultLines(System.Text.StringBuilder sb, IList<RepeatResult> results)

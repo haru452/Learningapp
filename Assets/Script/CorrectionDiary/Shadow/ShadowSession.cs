@@ -9,20 +9,22 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// シャドーイング 1 回 = BBC 6 Minute English の続いた 5 文。
-/// Start → 用意 → (イヤホンが無ければポップアップ) → 1 回目: 聞くだけ (Skip あり) → 3-2-1 →
-/// 2 回目: 録音しながら流す → 最後の文の 1.5 秒後に録音を止める → Gemini で書き起こし → 照合 → まとめ (My voice / Original)。
-/// 画面の部品は RepeatPracticeManager のものを使う (Speak ボタン = Skip / Stop、Again = My voice、Slow = Original)。
+/// YouTube シャドーイング: タイトルで検索して動画を選ぶ → Start → (初めての動画だけ) Gemini でお手本を作る →
+/// (イヤホンが無ければ確認) → アプリの中で動画を流し、再生が始まったら録音 → 最後まで / Stop → 180 秒ずつ書き起こし →
+/// お手本と照合 → Gemini のアドバイス → まとめ (My voice)。Web には点数だけ、Discord には文とアドバイスも送る。
+/// 画面の部品は RepeatPracticeManager のものを使う (Speak ボタン = Stop、Again = My voice)。
 /// </summary>
 public class ShadowSession
 {
-    public enum State { Idle, Preparing, ListenFirst, Countdown, Shadowing, Checking, Summary }
+    public enum State { Idle, Searching, Preparing, WaitingToPlay, Shadowing, Checking, Summary }
 
-    public const string PrepareFailedMessage = "Could not prepare the BBC audio. Please try again later.";
     public const string NotHeardMessage = "I couldn't hear you. Tap Start to try again.";
-    private const float GapSeconds = (float)ShadowChunker.Gap;
-    private const float TailSeconds = (float)ShadowChunker.Tail;
-    private const float CountSeconds = 0.8f;
+    public const string CannotPlayMessage = "Could not play the video in the app.";
+    private const int SplitSeconds = 180;
+    private const int ExtraRecordSeconds = 30;
+    private const float EndTailSeconds = 2f;
+    private const float PlayWaitSeconds = 60f;   // ▶ を押してもらうのを待つ
+    private const int MissedThreshold = 80;
     private const string MatchColor = "#40c057";
     private const string MissColor = "#fa5252";
 
@@ -43,37 +45,49 @@ public class ShadowSession
     public event Action StateChanged;
 
     private readonly View _v;
-    private readonly RepeatAudioPlayer _player;
+    private readonly RepeatAudioPlayer _audio;
+    private readonly YouTubePlayerView _video;
+    private readonly YouTubeSearchClient _youtube;
     private readonly AudioRecorder _recorder;
     private readonly GeminiApiClient _gemini;
     private readonly Func<List<RepeatResult>, DateTime, Task<string>> _save;
-    private readonly Func<string, List<RepeatResult>, Task<string>> _sendDiscord;
+    private readonly Func<YouTubeSearchClient.Video, int, string, List<ShadowScorer.SentenceScore>, Task<string>> _sendDiscord;
     private readonly Action _countStudyDay;
 
-    private CancellationTokenSource _cts;         // 1 回の練習
-    private CancellationTokenSource _skipCts;     // 1 回目を Skip
-    private CancellationTokenSource _replayCts;   // まとめの My voice / Original
-    private ShadowEpisodeStore.Chunk _chunk;
-    private List<AudioClip> _segments = new List<AudioClip>();
+    private CancellationTokenSource _cts;
+    private CancellationTokenSource _replayCts;
     private AudioClip _myVoice;
+    private bool _playing, _ended, _stopRequested;
+    private string _playError;
 
-    public ShadowSession(View view, RepeatAudioPlayer player, AudioRecorder recorder, GeminiApiClient gemini,
+    public ShadowSession(View view, RepeatAudioPlayer audio, YouTubePlayerView video, YouTubeSearchClient youtube,
+                         AudioRecorder recorder, GeminiApiClient gemini,
                          Func<List<RepeatResult>, DateTime, Task<string>> save,
-                         Func<string, List<RepeatResult>, Task<string>> sendDiscord, Action countStudyDay)
+                         Func<YouTubeSearchClient.Video, int, string, List<ShadowScorer.SentenceScore>, Task<string>> sendDiscord,
+                         Action countStudyDay)
     {
-        _v = view; _player = player; _recorder = recorder; _gemini = gemini;
+        _v = view; _audio = audio; _video = video; _youtube = youtube; _recorder = recorder; _gemini = gemini;
         _save = save; _sendDiscord = sendDiscord; _countStudyDay = countStudyDay;
+        _video.OnPlaying += () => _playing = true;
+        _video.OnEnded += () => _ended = true;
+        _video.OnError += msg => _playError = msg;
+        _v.Ui.SearchRequested += q => _ = SearchAsync(q);
+        _v.Ui.VideoChosen += _ => ShowIdle();
     }
 
     /// <summary>シャドーイングに切り替えた・画面を開いたときの表示</summary>
     public void ShowIdle(string status = null)
     {
-        SetText(_v.Header, "Shadowing");
+        var video = _v.Ui.Video;
+        SetText(_v.Header, video == null ? "Shadowing" : Escape(video.title));
         SetText(_v.Result, "");
-        SetText(_v.Credit, "Audio: BBC Learning English — 6 Minute English. Personal study only.");
+        SetText(_v.Credit, video == null ? "" : "Video: " + Escape(video.channel) + " on YouTube. Personal study only.");
         if (_v.Sentence != null) _v.Sentence.text = "";
+        _v.Ui.ShowVideo(false);
         SetState(State.Idle);
-        SetStatus(status ?? "Tap \"Start\". Listen to 5 sentences first, then shadow them (speak along).");
+        SetStatus(status ?? (video == null
+            ? "Search for the video you shadow on YouTube, then choose it."
+            : "Tap \"Start\" and shadow the whole video. Use earphones."));
     }
 
     // ------------------------------------------------------------
@@ -81,90 +95,108 @@ public class ShadowSession
     // ------------------------------------------------------------
     public async void OnMain()
     {
-        if (Current == State.Idle || Current == State.Summary) await RunAsync();
+        if ((Current == State.Idle || Current == State.Summary) && _v.Ui.Video != null) await RunAsync(_v.Ui.Video);
     }
 
-    public void OnSpeak()
+    public void OnSpeak()   // Stop
     {
-        if (Current == State.ListenFirst) _skipCts?.Cancel();                     // Skip
-        else if (Current == State.Countdown || Current == State.Shadowing)        // Stop: 保存しない
-            Cancel("Stopped. Tap \"Start\" to try again.");
+        if (Current == State.Shadowing) _stopRequested = true;                     // そこまでで判定する
+        else if (Current == State.WaitingToPlay) Cancel("Stopped. Tap \"Start\" to try again.");
     }
 
     public async void OnAgain()   // My voice
     {
         if (Current != State.Summary || _myVoice == null) return;
-        await ReplayAsync(new List<AudioClip> { _myVoice });
+        _replayCts?.Cancel();
+        _audio.Stop();
+        var cts = _replayCts = new CancellationTokenSource();
+        try { await _audio.PlayClipAsync(_myVoice, cts.Token); }
+        catch (OperationCanceledException) { }
+        catch (Exception e) { Debug.LogWarning("[Shadow] could not play: " + e.Message); }
     }
 
-    public async void OnSlow()    // Original
-    {
-        if (Current != State.Summary || _segments.Count == 0) return;
-        await ReplayAsync(_segments);
-    }
-
-    /// <summary>止める (タブの移動・Stop)。録音は捨てて、保存しない</summary>
+    /// <summary>止める (タブの移動・電話など)。録音は捨てて、保存しない</summary>
     public void Cancel(string status = "Cancelled. Tap \"Start\" to try again.")
     {
         _replayCts?.Cancel();
-        if (Current == State.Idle || Current == State.Summary) return;
+        _audio.Stop();
+        if (!IsRunning) return;
         _cts?.Cancel();
-        _skipCts?.Cancel();
-        _v.Ui?.CloseEarphonePopup(false);
-        _player.Stop();
+        _v.Ui.CloseEarphonePopup(false);
+        _video.Hide();
         if (_recorder.IsRecording) _recorder.StopRecording();
+        _recorder.MaxSeconds = 60;
         Screen.sleepTimeout = SleepTimeout.SystemSetting;
         SetLoading(false);
         ShowIdle(status);
     }
 
     // ------------------------------------------------------------
+    // 検索
+    // ------------------------------------------------------------
+    private async Task SearchAsync(string query)
+    {
+        if (!CanSwitchMode) return;
+        if (_youtube == null || !_youtube.IsConfigured) { SetStatus("YouTube API key is not set."); return; }
+        SetState(State.Searching);
+        SetLoading(true);
+        SetStatus("Searching...");
+        try
+        {
+            var videos = await _youtube.SearchVideosByTitleAsync(query, 60, 900, 5);
+            if (Current != State.Searching) return;
+            _v.Ui.ShowCandidates(videos);
+            SetLoading(false);
+            SetState(State.Idle);
+            SetStatus(videos.Count == 0 ? "No videos found (1-15 min). Try other words." : "Choose the video.");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Shadow] search failed: " + e.Message);
+            if (Current != State.Searching) return;
+            SetLoading(false);
+            SetState(State.Idle);
+            SetStatus("Could not search (" + Escape(FirstLine(e.Message)) + ").");
+        }
+    }
+
+    // ------------------------------------------------------------
     // 流れ
     // ------------------------------------------------------------
-    private async Task RunAsync()
+    private async Task RunAsync(YouTubeSearchClient.Video video)
     {
         _replayCts?.Cancel();
+        _audio.Stop();
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
+        _v.Ui.HideCandidates();
         SetText(_v.Result, "");
+        SetText(_v.Header, Escape(video.title));
         SetState(State.Preparing);
         SetLoading(true);
-        SetText(_v.Header, "Shadowing");
-        SetStatus("Preparing...");
+        SetStatus("Preparing the script (first time only)...");
 
-        // 1. 次の 5 文
+        // 1. お手本
+        List<string> script;
         try
         {
-            var chunk = await ShadowEpisodeStore.NextChunkAsync(_gemini, s => { if (!ct.IsCancellationRequested) SetStatus(s); }, ct);
-            if (ct.IsCancellationRequested) return;
-            _chunk = chunk;
-            ClearSegments();
-            bool slow = _v.Ui != null && _v.Ui.SlowOn;
-            foreach (var line in _chunk.Lines)
-            {
-                var w = ShadowChunker.Window(line, _chunk.Full.length);
-                var clip = RepeatAudioPlayer.MakeSegment(_chunk.Full, w.start, w.end, slow);
-                if (clip == null) throw new Exception("could not cut the audio");
-                _segments.Add(clip);
-                await Task.Yield();   // 画面を止めない
-                if (ct.IsCancellationRequested) return;
-            }
+            script = await ShadowScriptStore.GetAsync(_gemini, video, ct);
         }
         catch (OperationCanceledException) { return; }
         catch (Exception e)
         {
-            Debug.LogWarning("[Shadow] could not prepare: " + e);
+            Debug.LogWarning("[Shadow] could not prepare the script: " + e);
             if (ct.IsCancellationRequested) return;
             SetLoading(false);
-            ShowIdle(PrepareFailedMessage + "\n<size=70%>(" + Escape(FirstLine(e.Message)) + ")</size>");
+            ShowIdle("Could not prepare the script (" + Escape(FirstLine(e.Message)) + "). Tap \"Start\" to try again.");
             return;
         }
+        if (ct.IsCancellationRequested) return;
         SetLoading(false);
-        SetText(_v.Credit, "Audio: BBC Learning English — 6 Minute English (" + Escape(_chunk.Episode.Title) + "). Personal study only.");
 
-        // 2. イヤホン (Android でイヤホンが無いときだけ)
-        if (!EarphoneCheck.HasEarphones() && _v.Ui != null)
+        // 2. イヤホン・マイク
+        if (!EarphoneCheck.HasEarphones())
         {
             bool go = await _v.Ui.ConfirmEarphonesAsync();
             if (ct.IsCancellationRequested) return;
@@ -176,156 +208,156 @@ public class ShadowSession
             return;
         }
         if (ct.IsCancellationRequested) return;
-        Screen.sleepTimeout = SleepTimeout.NeverSleep;
+        if (!YouTubePlayerView.IsEmbeddedSupported) { ShowIdle(CannotPlayMessage); return; }
 
+        // 3. 動画を出して、再生が始まったら録音
         byte[] wav;
+        double recorded;
+        int maxSeconds = video.durationSeconds + ExtraRecordSeconds;
         try
         {
-            // 3. 1 回目: 聞くだけ (Skip で 2 回目へ)
-            SetState(State.ListenFirst);
-            SetStatus("Just listen. Tap \"Skip\" to start shadowing.");
-            _skipCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            try
-            {
-                await PlayAllAsync(i => "Listen first (" + (i + 1) + " / " + _segments.Count + ")", _skipCts.Token);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { _player.Stop(); }
+            _playing = _ended = _stopRequested = false;
+            _playError = null;
+            _v.Ui.ShowVideo(true);
+            await Task.Yield();   // 枠の大きさが決まってから WebView を置く
+            _video.SetVideoArea(_v.Ui.VideoArea);
+            _video.Show(video.id);
+            SetState(State.WaitingToPlay);
+            SetStatus("Tap ▶ on the video. Recording starts with the video.");
+            Screen.sleepTimeout = SleepTimeout.NeverSleep;
 
-            // 4. 3-2-1
-            SetState(State.Countdown);
-            SetText(_v.Header, "Get ready");
-            for (int n = 3; n >= 1; n--)
+            float waitEnd = Time.realtimeSinceStartup + PlayWaitSeconds;
+            while (!_playing)
             {
-                SetStatus("<size=160%><b>" + n + "</b></size>");
-                await Delay(CountSeconds, ct);
+                ct.ThrowIfCancellationRequested();
+                if (_playError != null || Time.realtimeSinceStartup > waitEnd) throw new ShadowPlayException();
+                await Task.Yield();
             }
 
-            // 5. 2 回目: 録音しながら流す
+            _recorder.MaxSeconds = maxSeconds;
             if (!_recorder.StartRecording()) throw new Exception("could not start the microphone");
+            float start = Time.realtimeSinceStartup;
             SetState(State.Shadowing);
-            SetStatus("Speak along with the voice. Tap \"Stop\" to quit.");
-            await PlayAllAsync(i => "Shadow (" + (i + 1) + " / " + _segments.Count + ")", ct);
-            await Delay(TailSeconds, ct);
+            float endAt = float.MaxValue;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                float elapsed = Time.realtimeSinceStartup - start;
+                if (_ended && endAt == float.MaxValue) endAt = elapsed + EndTailSeconds;
+                if (_stopRequested || elapsed >= endAt || elapsed >= maxSeconds - 0.5f) break;
+                SetStatus("Shadowing... " + YouTubeSearchClient.FormatDuration((int)elapsed) + " / " +
+                          YouTubeSearchClient.FormatDuration(video.durationSeconds) + "\n<size=70%>Tap \"Stop\" to finish early.</size>");
+                await Task.Yield();
+            }
+            recorded = Time.realtimeSinceStartup - start;
             wav = _recorder.IsRecording ? _recorder.StopRecording() : null;
         }
         catch (OperationCanceledException) { return; }
         catch (Exception e)
         {
-            Debug.LogException(e);
             if (ct.IsCancellationRequested) return;
-            _player.Stop();
+            Debug.LogWarning("[Shadow] " + e.Message);
+            _video.Hide();
             if (_recorder.IsRecording) _recorder.StopRecording();
-            Screen.sleepTimeout = SleepTimeout.SystemSetting;
-            ShowIdle("Could not play or record (" + FirstLine(e.Message) + "). Tap \"Start\" to try again.");
+            ShowIdle(e is ShadowPlayException ? CannotPlayMessage : "Could not record (" + Escape(FirstLine(e.Message)) + ").");
             return;
         }
         finally
         {
+            _recorder.MaxSeconds = 60;
             Screen.sleepTimeout = SleepTimeout.SystemSetting;
         }
+        _video.Hide();
+        _v.Ui.ShowVideo(false);
 
-        // 6. 判定
+        // 4. 書き起こし (180 秒ずつ)
         SetState(State.Checking);
         SetLoading(true);
         SetText(_v.Header, "Checking...");
-        SetStatus("Checking...");
-        string heard;
+        var heard = new StringBuilder();
+        var notes = new List<string>();
         try
         {
-            heard = wav == null ? "" : ((await _gemini.TranscribeAsync(wav)) ?? "").Trim();
+            var parts = WavSplitter.Split(wav, SplitSeconds);
+            string reference = string.Join(" ", script);
+            for (int i = 0; i < parts.Count; i++)
+            {
+                SetStatus("Checking... (" + (i + 1) + " / " + parts.Count + ")");
+                var r = await _gemini.TranscribeShadowingAsync(parts[i], reference);
+                if (ct.IsCancellationRequested) return;
+                heard.Append(r.transcript).Append(' ');
+                notes.AddRange(r.notes);
+            }
         }
         catch (Exception e)
         {
             Debug.LogWarning("[Shadow] transcription failed: " + e.Message);
             if (ct.IsCancellationRequested) return;
             SetLoading(false);
-            ShowIdle("Could not check your voice (" + FirstLine(e.Message) + "). Tap \"Start\" to try again.");
+            ShowIdle("Could not check your voice (" + Escape(FirstLine(e.Message)) + "). Tap \"Start\" to try again.");
             return;
         }
-        if (ct.IsCancellationRequested) return;
-        SetLoading(false);
 
-        var sentences = _chunk.Lines.Select(l => l.Text).ToList();
-        var score = ShadowScorer.Score(sentences, heard);
+        double fraction = video.durationSeconds > 0 ? recorded / video.durationSeconds : 1;
+        var sentences = ShadowScript.SentencesUpTo(script, fraction);
+        var score = ShadowScorer.Score(sentences, heard.ToString());
         if (score.empty)
         {
-            ShowIdle(NotHeardMessage);   // 0% にしない。同じ 5 文をもう一度
+            SetLoading(false);
+            ShowIdle(NotHeardMessage);
             return;
         }
+
+        // 5. アドバイス
+        SetStatus("Getting advice...");
+        var missed = score.scores.SelectMany(s => s.Words).Where(w => !w.Matched)
+            .Select(w => new string(w.Text.Where(c => char.IsLetter(c) || c == '\'').ToArray()).ToLowerInvariant())
+            .Where(w => w.Length > 0).GroupBy(w => w).OrderByDescending(g => g.Count()).Select(g => g.Key).ToList();
+        string advice = null;
+        try { advice = await _gemini.ShadowAdviceAsync(notes, missed); }
+        catch (Exception e) { Debug.LogWarning("[Shadow] advice failed: " + e.Message); }
+        if (ct.IsCancellationRequested) return;
+        SetLoading(false);
         SetMyVoice(wav);
-        await FinishAsync(score.scores, score.average);
+        await FinishAsync(video, score.scores, score.average, advice);
     }
 
-    private async Task FinishAsync(List<ShadowScorer.SentenceScore> scores, int average)
+    private async Task FinishAsync(YouTubeSearchClient.Video video, List<ShadowScorer.SentenceScore> scores, int average, string advice)
     {
-        ShadowEpisodeStore.MarkDone(_chunk);
-        var results = scores.Select(s => new RepeatResult
-        {
-            sentence = s.Text,
-            heard = string.Join(" ", s.Words.Where(w => w.Matched).Select(w => w.Text)),
-            accuracy = s.Accuracy,
-            replays = 0,
-            source = "bbc",
-            voice = RepeatAudioPlayer.VoiceHuman,
-            mode = "shadow",
-        }).ToList();
-
         var sb = new StringBuilder();
-        sb.Append("<b>Average: ").Append(average).Append("%</b>\n")
-          .Append("<size=75%>").Append(Escape(_chunk.Episode.Title)).Append(" (")
-          .Append(_chunk.Index + 1).Append(" / ").Append(_chunk.Total).Append(")</size>\n\n");
+        sb.Append("<b>Average: ").Append(average).Append("%</b>  <size=75%>(").Append(scores.Count).Append(" sentences)</size>\n\n")
+          .Append("<b>Advice</b>\n").Append(Escape(string.IsNullOrWhiteSpace(advice) ? "Advice: not available" : advice)).Append("\n\n");
         foreach (var s in scores)
         {
             foreach (var w in s.Words)
                 sb.Append("<color=").Append(w.Matched ? MatchColor : MissColor).Append('>').Append(Escape(w.Text)).Append("</color> ");
             sb.Append(" <b>").Append(s.Accuracy).Append("%</b>\n\n");
         }
-        SetText(_v.Header, "Summary");
+        SetText(_v.Header, "Summary - " + Escape(video.title));
         SetText(_v.Result, sb.ToString().TrimEnd());
         SetState(State.Summary);
         SetStatus("Saving...");
 
+        // Web には点数だけ (1 回 = 1 行)
+        var results = new List<RepeatResult>
+        {
+            new RepeatResult { sentence = "", heard = "", accuracy = average, replays = 0, source = "youtube",
+                               voice = RepeatAudioPlayer.VoiceHuman, mode = "shadow" },
+        };
         _countStudyDay?.Invoke();
         string saveNote = await _save(results, DateTime.UtcNow);
-        string discordError = await _sendDiscord(_chunk.Episode.Title, results);
-        if (Current != State.Summary || _v.Ui == null || !_v.Ui.ShadowOn) return;   // もう次の練習・リピーティングに移った
+        string discordError = await _sendDiscord(video, average, advice, scores);
+        if (Current != State.Summary || !_v.Ui.ShadowOn) return;   // もう次の練習・リピーティングに移った
         SetStatus((saveNote ?? "Saved.") + (discordError == null ? "" : "  Discord failed: " + discordError) +
-                  "  \"My voice\" / \"Original\" to compare. \"Start\" for the next 5.");
+                  "  \"My voice\" to listen to yourself.");
     }
 
     // ------------------------------------------------------------
-    private async Task PlayAllAsync(Func<int, string> header, CancellationToken ct)
-    {
-        for (int i = 0; i < _segments.Count; i++)
-        {
-            SetText(_v.Header, header(i));
-            await _player.PlayClipAsync(_segments[i], ct);
-            if (i < _segments.Count - 1) await Delay(GapSeconds, ct);
-        }
-    }
-
-    private async Task ReplayAsync(List<AudioClip> clips)
-    {
-        _replayCts?.Cancel();
-        _player.Stop();
-        var cts = _replayCts = new CancellationTokenSource();
-        try
-        {
-            for (int i = 0; i < clips.Count; i++)
-            {
-                await _player.PlayClipAsync(clips[i], cts.Token);
-                if (i < clips.Count - 1) await Delay(GapSeconds, cts.Token);
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception e) { Debug.LogWarning("[Shadow] could not play: " + e.Message); }
-    }
-
     private void SetMyVoice(byte[] wav)
     {
         if (_myVoice != null) UnityEngine.Object.Destroy(_myVoice);
         _myVoice = null;
-        // AudioRecorder の WAV: 44 バイトのヘッダー + 16bit PCM (モノラル)
+        // AudioRecorder の WAV: 44 バイトのヘッダー + 16bit PCM
         if (wav == null || wav.Length <= 44) return;
         int rate = BitConverter.ToInt32(wav, 24);
         int channels = BitConverter.ToInt16(wav, 22);
@@ -337,36 +369,20 @@ public class ShadowSession
         _myVoice.SetData(samples, 0);
     }
 
-    private void ClearSegments()
-    {
-        foreach (var c in _segments) if (c != null) UnityEngine.Object.Destroy(c);
-        _segments.Clear();
-    }
-
-    private static async Task Delay(float seconds, CancellationToken ct)
-    {
-        float end = Time.realtimeSinceStartup + seconds;
-        while (Time.realtimeSinceStartup < end)
-        {
-            ct.ThrowIfCancellationRequested();
-            await Task.Yield();
-        }
-        ct.ThrowIfCancellationRequested();
-    }
-
     private void SetState(State s)
     {
         Current = s;
-        _v.MainButton.interactable = s == State.Idle || s == State.Summary;
-        if (_v.MainLabel != null) _v.MainLabel.text = s == State.Idle || s == State.Summary ? "Start" : "...";
+        bool idle = s == State.Idle || s == State.Summary;
+        _v.MainButton.interactable = idle && _v.Ui.Video != null;
+        if (_v.MainLabel != null) _v.MainLabel.text = idle ? "Start" : "...";
 
-        bool speak = s == State.ListenFirst || s == State.Countdown || s == State.Shadowing;
-        if (_v.SpeakButton != null) { _v.SpeakButton.gameObject.SetActive(speak); _v.SpeakButton.interactable = true; }
-        if (_v.SpeakLabel != null) _v.SpeakLabel.text = s == State.ListenFirst ? "Skip" : "Stop";
+        bool stop = s == State.WaitingToPlay || s == State.Shadowing;
+        if (_v.SpeakButton != null) { _v.SpeakButton.gameObject.SetActive(stop); _v.SpeakButton.interactable = true; }
+        if (_v.SpeakLabel != null) _v.SpeakLabel.text = "Stop";
 
-        bool summary = s == State.Summary;
-        SetButton(_v.AgainButton, summary, "My voice");
-        SetButton(_v.SlowButton, summary, "Original");
+        SetButton(_v.AgainButton, s == State.Summary && _myVoice != null, "My voice");
+        if (_v.SlowButton != null) _v.SlowButton.gameObject.SetActive(false);
+        _v.Ui.SetInteractable(idle);
         StateChanged?.Invoke();
     }
 
@@ -390,4 +406,6 @@ public class ShadowSession
         int i = s.IndexOf('\n');
         return i >= 0 ? s.Substring(0, i) : s;
     }
+
+    private class ShadowPlayException : Exception { }
 }

@@ -247,57 +247,53 @@ public static class LogicTests
     }
 
     // ---------------- シャドーイング (架空のフィード・架空の文だけを使う) ----------------
-    private static ShadowChunker.Line SL(string text, double start, double end) =>
-        new ShadowChunker.Line { Text = text, Speaker = "A", Start = start, End = end };
+    // ---------------- シャドーイング (YouTube。架空の文・作った音だけを使う) ----------------
+    private static byte[] FakeWav(int seconds, int rate = 16000)
+    {
+        var samples = new float[seconds * rate];
+        for (int i = 0; i < samples.Length; i++) samples[i] = (float)Math.Sin(i * 0.05) * 0.3f;
+        return PcmAudio.ToWav(samples, 1, rate);
+    }
 
     private static void ShadowTests()
     {
-        string rss = "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>Test show</title>" +
-            "<item><title>Old one</title><pubDate>Thu, 16 Oct 2026 08:00:00 GMT</pubDate>" +
-            "<guid isPermaLink=\"false\">urn:test:podcast:p0aaaa</guid><enclosure url=\"https://example.com/x/a.mp3\" length=\"1\" type=\"audio/mpeg\"/></item>" +
-            "<item><title>New one &amp; more</title><pubDate>Thu, 23 Oct 2026 08:00:00 GMT</pubDate>" +
-            "<enclosure url=\"https://example.com/x/b_file.mp3\" type=\"audio/mpeg\"/></item>" +
-            "<item><title>No audio</title><pubDate>Fri, 24 Oct 2026 08:00:00 GMT</pubDate></item></channel></rss>";
-        var eps = BbcFeed.Parse(rss);
-        Check(eps.Count == 2, "feed: 2 episodes with audio (" + eps.Count + ")");
-        if (eps.Count == 2)
+        // お手本
+        string script = "{\"sentences\":[{\"text\":\"I like green tea.\"},{\"text\":\"  \"},{\"text\":\"" +
+            string.Join(" ", Enumerable.Repeat("word", 41)) + "\"},{\"text\":\"We play soccer.\"}]}";
+        var ss = ShadowScript.Parse(script);
+        Check(ss.SequenceEqual(new[] { "I like green tea.", "We play soccer." }), "script: empty and 41-word sentences dropped (" + string.Join("|", ss) + ")");
+        Check(ShadowScript.Parse("nope").Count == 0 && ShadowScript.Parse(null).Count == 0, "script: broken JSON -> empty");
+        string many = "{\"sentences\":[" + string.Join(",", Enumerable.Range(0, 200).Select(i => "{\"text\":\"one two three four five six seven eight nine ten\"}")) + "]}";
+        Check(ShadowScript.Parse(many).Count == 150, "script: up to 1500 words (" + ShadowScript.Parse(many).Count + ")");
+        var ten = Enumerable.Range(1, 10).Select(i => "Sentence " + i + ".").ToList();
+        Check(ShadowScript.SentencesUpTo(ten, 1.0).Count == 10 && ShadowScript.SentencesUpTo(ten, 0.99).Count == 10, "script: whole video -> all");
+        Check(ShadowScript.SentencesUpTo(ten, 0.5).Count == 6, "script: half -> 5 + 1 (" + ShadowScript.SentencesUpTo(ten, 0.5).Count + ")");
+        Check(ShadowScript.SentencesUpTo(ten, 0.0).Count == 1, "script: stopped at once -> 1");
+
+        // 録音を 180 秒ずつに分ける
+        var parts = WavSplitter.Split(FakeWav(420), 180);
+        Check(parts.Count == 3, "wav split: 7 min -> 3 parts (" + parts.Count + ")");
+        if (parts.Count == 3)
         {
-            Check(eps[0].Title == "New one & more" && eps[1].Title == "Old one", "feed: newest first, entities decoded");
-            Check(eps[1].Id == "p0aaaa" && eps[0].Id == "b_file", "feed: id from guid, else file name (" + eps[1].Id + ", " + eps[0].Id + ")");
-            Check(eps[1].AudioUrl == "https://example.com/x/a.mp3", "feed: audio url");
+            Check(BitConverter.ToInt32(parts[0], 40) == 180 * 16000 * 2 && BitConverter.ToInt32(parts[2], 40) == 60 * 16000 * 2,
+                  "wav split: data sizes 180 s / 60 s");
+            Check(BitConverter.ToInt32(parts[1], 4) == parts[1].Length - 8 && BitConverter.ToInt32(parts[1], 24) == 16000,
+                  "wav split: RIFF size and sample rate in each part");
         }
-        string httpRss = "<rss><channel><item><title>T</title><guid>urn:x:p0bbbb</guid>" +
-            "<enclosure url=\"http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss/proto/http/vpid/p0cccc.mp3\"/></item></channel></rss>";
-        var hp = BbcFeed.Parse(httpRss);
-        Check(hp.Count == 1 && hp[0].AudioUrl == "https://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss/proto/https/vpid/p0cccc.mp3",
-              "feed: http audio url made https (Android blocks http): " + (hp.Count > 0 ? hp[0].AudioUrl : "none"));
-        Check(BbcFeed.Parse("<rss><broken").Count == 0, "feed: broken xml -> empty");
-        Check(BbcFeed.Parse(null).Count == 0, "feed: null -> empty");
+        var shortParts = WavSplitter.Split(FakeWav(5), 180);
+        Check(shortParts.Count == 1 && shortParts[0].Length == FakeWav(5).Length, "wav split: short recording -> 1 part");
+        var tail = PcmAudio.ToWav(new float[(int)(360.5 * 16000)], 1, 16000);
+        Check(WavSplitter.Split(tail, 180).Count == 2, "wav split: 0.5 s left over joins the last part");
+        Check(WavSplitter.Split(null, 180).Count == 0, "wav split: null -> none");
 
-        string six = "one two three four five six";
-        var eight = Enumerable.Range(0, 8).Select(i => SL(six + " " + i + ".", i * 4.0, i * 4.0 + 3.0)).ToList();
-        var chunks = ShadowChunker.Chunk(eight, 60);
-        Check(chunks.Count == 2 && chunks[0].Count == 5 && chunks[1].Count == 3, "chunk: 8 lines -> 5 + 3");
-        Check(ShadowChunker.Chunk(eight.Take(7).ToList(), 60).Count == 1, "chunk: 7 lines -> 5 (2 left over dropped)");
-        var bad = new List<ShadowChunker.Line>
-        {
-            SL(six + " a.", 1, 4), SL(six + " b.", 5, 5), SL(six + " c.", 3, 6), SL("too short here.", 7, 8),
-            SL(string.Join(" ", Enumerable.Repeat("word", 21)) + ".", 9, 12), SL(six + " d.", 13, 99),
-            SL(six + " e.", 14, 16), SL(six + " f.", 17, 19), SL(six + " g.", 20, 22), SL(six + " h.", 23, 25),
-        };
-        var good = ShadowChunker.Chunk(bad, 30);
-        Check(good.Count == 1 && good[0].Select(l => l.Text.Split(' ').Last()).SequenceEqual(new[] { "a.", "e.", "f.", "g.", "h." }),
-            "chunk: bad times, 3 words, 21 words and past-the-end lines dropped");
-        var longOnes = Enumerable.Range(0, 5).Select(i => SL(six + " " + i + ".", i * 13.0, i * 13.0 + 12.0)).ToList();
-        Check(ShadowChunker.Chunk(longOnes, 70).Count == 0, "chunk: over 55 s (recorder limit) not used");
-        var slowLong = Enumerable.Range(0, 5).Select(i => SL(six + " " + i + ".", i * 8.0, i * 8.0 + 7.6)).ToList();
-        Check(ShadowChunker.Chunk(slowLong, 70).Count == 0, "chunk: too long when played slow (0.75x) not used");
-        var w = ShadowChunker.Window(SL(six, 1.0, 2.0), 2.1);
-        Check(Math.Abs(w.start - 0.8) < 1e-9 && Math.Abs(w.end - 2.1) < 1e-9, "chunk: window pads 0.2 s within the audio");
-        var parsed = ShadowChunker.ParseGemini("{\"sentences\":[{\"text\":\"a b c d\",\"speaker\":\"Neil\",\"start\":1.5,\"end\":3.25}]}");
-        Check(parsed.Count == 1 && parsed[0].Speaker == "Neil" && parsed[0].Start == 1.5 && parsed[0].End == 3.25, "chunk: parse Gemini JSON");
-        Check(ShadowChunker.ParseGemini("nope").Count == 0, "chunk: broken Gemini JSON -> empty");
+        // 検索結果
+        YouTubeSearchClient.Video V(string id, int sec) => new YouTubeSearchClient.Video { id = id, title = id, channel = "c", durationSeconds = sec };
+        var found = new List<YouTubeSearchClient.Video> { V("a", 59), V("b", 60), V("c", 901), V("d", 900), V("e", 300), V("f", 120), V("g", 400), V("h", 500) };
+        var picked = YouTubeSearchClient.PickTitleResults(found, 60, 900, 5);
+        Check(picked.Select(x => x.id).SequenceEqual(new[] { "b", "d", "e", "f", "g" }), "search: 1-15 min, order kept, 5 max (" + string.Join(",", picked.Select(x => x.id)) + ")");
+        Check(YouTubeSearchClient.FormatDuration(365) == "6:05" && YouTubeSearchClient.FormatDuration(60) == "1:00", "search: m:ss");
 
+        // 照合 (今のまま)
         var sentences = new[] { "I like green tea.", "She went home early today.", "We play soccer." };
         var sc = ShadowScorer.Score(sentences, "i like green tea we play soccer");
         Check(sc.scores.Select(x => x.Accuracy).SequenceEqual(new[] { 100, 0, 100 }) && sc.average == 67 && !sc.empty,
@@ -309,43 +305,51 @@ public static class LogicTests
         foreach (int t in new[] { 3, 4, 7, 8, 22, 23, 26 }) Check(EarphoneCheck.IsEarphone(t), "earphone type " + t);
         foreach (int t in new[] { 1, 2, 27, 0 }) Check(!EarphoneCheck.IsEarphone(t), "not earphone type " + t);
 
+        // Gemini のスキーマ
+        foreach (var (name, json) in new[] { ("video script", GeminiApiClient.VideoScriptSchema), ("shadow transcript", GeminiApiClient.ShadowTranscriptSchema),
+                                             ("shadow advice", GeminiApiClient.ShadowAdviceSchema) })
+        {
+            try { JsonDocument.Parse(json); Check(true, name + " schema is JSON"); }
+            catch (Exception e) { Check(false, name + " schema JSON: " + e.Message); }
+        }
         try
         {
-            var schema = JsonDocument.Parse(GeminiApiClient.ShadowSegmentSchema).RootElement;
-            var item = schema.GetProperty("properties").GetProperty("sentences").GetProperty("items").GetProperty("properties");
-            Check(item.TryGetProperty("text", out _) && item.TryGetProperty("start", out _) && item.TryGetProperty("end", out _)
-                  && item.TryGetProperty("speaker", out _), "shadow schema has text/speaker/start/end");
+            var props = JsonDocument.Parse(GeminiApiClient.ShadowTranscriptSchema).RootElement.GetProperty("properties");
+            Check(props.GetProperty("transcript").GetProperty("type").GetString() == "STRING"
+                  && props.GetProperty("notes").GetProperty("type").GetString() == "ARRAY", "shadow transcript schema: transcript + notes");
+            var item = JsonDocument.Parse(GeminiApiClient.VideoScriptSchema).RootElement.GetProperty("properties").GetProperty("sentences")
+                .GetProperty("items").GetProperty("properties");
+            Check(item.TryGetProperty("text", out _), "video script schema: sentences[].text");
         }
-        catch (Exception e) { Check(false, "shadow schema JSON: " + e.Message); }
+        catch (Exception e) { Check(false, "shadow schemas: " + e.Message); }
 
+        // 保存 (点数だけ)
         var rows = new List<RepeatResult>
         {
-            new RepeatResult { sentence = "I like green tea.", accuracy = 100, source = "bbc", voice = "human", mode = "shadow" },
+            new RepeatResult { sentence = "I like green tea.", accuracy = 100, source = "youtube", voice = "human", mode = "shadow" },
             new RepeatResult { sentence = "We play soccer.", accuracy = 50, heard = "we play", source = "tatoeba", voice = "human" },
         };
         var rj = JsonDocument.Parse(RepeatRpc.ResultsJson(rows)).RootElement;
         Check(rj[0].GetProperty("mode").GetString() == "shadow" && rj[1].GetProperty("mode").GetString() == "repeat", "rpc: mode (empty -> repeat)");
         Check(rj[0].GetProperty("sentence").GetString() == "" && rj[0].GetProperty("heard").GetString() == ""
-              && rj[0].GetProperty("accuracy").GetInt32() == 100, "rpc: shadow sends the score only (no BBC text, no heard)");
+              && rj[0].GetProperty("accuracy").GetInt32() == 100 && rj[0].GetProperty("source").GetString() == "youtube",
+              "rpc: shadow sends the score only (no text, no heard)");
         Check(rj[1].GetProperty("sentence").GetString() == "We play soccer." && rj[1].GetProperty("heard").GetString() == "we play",
               "rpc: repeat still sends text");
-
         string shadowArgs = RepeatRpc.SaveArgs(rows, new DateTime(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc));
         string repeatArgs = RepeatRpc.SaveArgs(rows.Skip(1).ToList(), new DateTime(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc));
         Check(shadowArgs.Contains("\"p_version\":2") && shadowArgs.Contains("\"p_taken_at\":\"2026-10-22T12:00:00Z\"")
               && shadowArgs.StartsWith(",\"p_results\":["), "rpc: shadow save asks for the new function (old server fails -> kept on phone)");
         Check(!repeatArgs.Contains("p_version") && repeatArgs.Contains("\"p_taken_at\""), "rpc: repeat-only save unchanged");
 
-        Check(ShadowFailure.CountsAgainstEpisode(new Exception("Gemini returned no result"), true), "fail: repeatable error counts");
-        Check(!ShadowFailure.CountsAgainstEpisode(new GeminiQuotaException("429"), true), "fail: quota does not count");
-        Check(!ShadowFailure.CountsAgainstEpisode(new OperationCanceledException(), true), "fail: cancel does not count");
-        Check(!ShadowFailure.CountsAgainstEpisode(new Exception("x"), false), "fail: offline does not count");
-        Check(!ShadowFailure.ShouldSkip(1) && ShadowFailure.ShouldSkip(2), "fail: skip the episode after 2 failures in a row");
-
-        string sm = DiscordClient.ShadowMessage(new DateTime(2026, 10, 22, 21, 0, 0), "New one & more", rows);
+        // Discord
+        string sm = DiscordClient.ShadowMessage(new DateTime(2026, 10, 22, 21, 0, 0), "My test video", "https://www.youtube.com/watch?v=abc",
+            67, "- 語尾をはっきり\n- 遅れないように", sc.scores);
         Check(sm.StartsWith("\U0001F3A7 **Shadowing - 2026-10-22 21:00**"), "shadow discord header: " + sm);
-        Check(sm.Contains("6 Minute English: New one & more") && sm.Contains("Average: 75%") && sm.Contains("\u26A0\uFE0F  50%  We play soccer."),
-            "shadow discord body");
+        Check(sm.Contains("My test video") && sm.Contains("<https://www.youtube.com/watch?v=abc>") && sm.Contains("Average: 67%")
+              && sm.Contains("語尾をはっきり") && sm.Contains("✅ 100%  I like green tea.") && sm.Contains("⚠️   0%  She went home early today."),
+              "shadow discord body");
+        Check(sm.IndexOf("Advice", StringComparison.Ordinal) < sm.IndexOf("I like green tea.", StringComparison.Ordinal), "shadow discord: advice before sentences");
     }
 
     private static void RepeatRpcTests()

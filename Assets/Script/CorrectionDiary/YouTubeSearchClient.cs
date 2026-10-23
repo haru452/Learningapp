@@ -103,6 +103,63 @@ public class YouTubeSearchClient
         return videos;
     }
 
+    /// <summary>
+    /// シャドーイング用: タイトルなどで検索し、minSeconds〜maxSeconds の動画を検索の順のまま最大 limit 件返す。
+    /// </summary>
+    public async Task<List<Video>> SearchVideosByTitleAsync(string query, int minSeconds = 60, int maxSeconds = 900, int limit = 5)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("YouTube API key is not set.");
+        string searchUrl = SearchUrl +
+            "?part=id&type=video&maxResults=15&videoEmbeddable=true&relevanceLanguage=en" +
+            "&q=" + Uri.EscapeDataString(query ?? "") +
+            "&key=" + Uri.EscapeDataString(_apiKey);
+        var search = JsonUtility.FromJson<SearchResponse>(await HttpUtil.GetAsync(searchUrl));
+        var ids = new List<string>();
+        if (search?.items != null)
+            foreach (var item in search.items)
+                if (!string.IsNullOrEmpty(item?.id?.videoId)) ids.Add(item.id.videoId);
+        if (ids.Count == 0) return new List<Video>();
+
+        string videosUrl = VideosUrl + "?part=snippet,contentDetails&id=" + string.Join(",", ids) +
+                           "&key=" + Uri.EscapeDataString(_apiKey);
+        var details = JsonUtility.FromJson<VideosResponse>(await HttpUtil.GetAsync(videosUrl));
+        var byId = new Dictionary<string, Video>();
+        if (details?.items != null)
+            foreach (var item in details.items)
+                byId[item.id] = new Video
+                {
+                    id = item.id,
+                    title = item.snippet?.title ?? "",
+                    channel = item.snippet?.channelTitle ?? "",
+                    durationSeconds = ParseIsoDuration(item.contentDetails?.duration),
+                };
+        var ordered = new List<Video>();
+        foreach (string id in ids) if (byId.TryGetValue(id, out Video v)) ordered.Add(v);   // 検索の順に戻す
+        return PickTitleResults(ordered, minSeconds, maxSeconds, limit);
+    }
+
+    /// <summary>長さで絞り、順番はそのまま、最大 limit 件</summary>
+    public static List<Video> PickTitleResults(IList<Video> videos, int minSeconds, int maxSeconds, int limit)
+    {
+        var list = new List<Video>();
+        if (videos == null) return list;
+        foreach (var v in videos)
+        {
+            if (v == null || v.durationSeconds < minSeconds || v.durationSeconds > maxSeconds) continue;
+            list.Add(v);
+            if (list.Count >= limit) break;
+        }
+        return list;
+    }
+
+    /// <summary>365 → "6:05"</summary>
+    public static string FormatDuration(int seconds)
+    {
+        seconds = Math.Max(0, seconds);
+        return (seconds / 60) + ":" + (seconds % 60).ToString("00");
+    }
+
     // "PT1M35S" → 95
     private static int ParseIsoDuration(string iso)
     {

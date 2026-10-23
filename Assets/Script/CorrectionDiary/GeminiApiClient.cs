@@ -518,29 +518,72 @@ public class GeminiApiClient
         return result;
     }
 
-    // ---------------- シャドーイング: 番組の音声を文と時間に切り出す ----------------
-    private const string ShadowSegmentPrompt =
-        "This is an English podcast episode (a conversation between hosts). " +
-        "Split the spoken conversation into sentences and give each sentence's start and end time in seconds " +
-        "from the beginning of the audio (2 decimal places). Write each sentence exactly as it was spoken. " +
-        "Give the speaker's name if it is said, otherwise \"A\" or \"B\". " +
-        "Leave out the music at the start and end and the fixed programme introduction and closing lines. " +
-        "List the sentences in the order they are spoken.";
+    // ---------------- シャドーイング (YouTube) ----------------
+    private const string VideoScriptPrompt =
+        "Transcribe the English speech in this video, one sentence per item, exactly as it is spoken. " +
+        "Leave out music, the fixed greeting at the start and the fixed closing lines at the end, and any speech that is not English.";
 
-    public const string ShadowSegmentSchema =
+    public const string VideoScriptSchema =
         "{\"type\":\"OBJECT\",\"properties\":{\"sentences\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"OBJECT\"," +
-        "\"properties\":{\"text\":{\"type\":\"STRING\"},\"speaker\":{\"type\":\"STRING\"}," +
-        "\"start\":{\"type\":\"NUMBER\"},\"end\":{\"type\":\"NUMBER\"}}," +
-        "\"required\":[\"text\",\"speaker\",\"start\",\"end\"]}}},\"required\":[\"sentences\"]}";
+        "\"properties\":{\"text\":{\"type\":\"STRING\"}},\"required\":[\"text\"]}}},\"required\":[\"sentences\"]}";
 
-    /// <summary>番組の音声 (MP3 など) を渡し、{"sentences":[...]} の JSON をそのまま返す</summary>
-    public async Task<string> SegmentEpisodeAsync(byte[] audio, string mimeType)
+    /// <summary>YouTube の動画のお手本 (文ごとの文字起こし)。{"sentences":[{"text"}]} の JSON をそのまま返す</summary>
+    public async Task<string> TranscribeVideoAsync(string youtubeUrl)
     {
-        if (audio == null || audio.Length == 0) throw new ArgumentException("No audio.", nameof(audio));
-        string part = "{\"inline_data\":{\"mime_type\":\"" + HttpUtil.JsonEscape(string.IsNullOrEmpty(mimeType) ? "audio/mpeg" : mimeType) +
-                      "\",\"data\":\"" + Convert.ToBase64String(audio) + "\"}}";
-        return await GeneratePartsAsync(TextPart(ShadowSegmentPrompt) + "," + part, ShadowSegmentSchema,
+        if (string.IsNullOrWhiteSpace(youtubeUrl)) throw new ArgumentException("No video.", nameof(youtubeUrl));
+        return await GeneratePartsAsync(YouTubePart(youtubeUrl) + "," + TextPart(VideoScriptPrompt), VideoScriptSchema,
                                         "\"temperature\":0.1", AudioGradeTimeoutSeconds);
+    }
+
+    private const string ShadowTranscriptPrompt =
+        "The attached audio is an English learner shadowing a video (speaking along with it while listening on earphones). " +
+        "1) transcript: write exactly what the learner said, including mistakes. Do not correct it, and do not copy the reference. " +
+        "2) notes: 0 to 3 short notes in English about pronunciation, rhythm or falling behind (for example: weak or missing small words, " +
+        "unclear sounds, sentence endings dropped). The reference script is only a hint for hard-to-hear words:\n";
+
+    public const string ShadowTranscriptSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{\"transcript\":{\"type\":\"STRING\"}," +
+        "\"notes\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}},\"required\":[\"transcript\",\"notes\"]}";
+
+    /// <summary>シャドーイングの録音 (180 秒ほど) を書き起こし、発音などの気付きをもらう</summary>
+    public async Task<(string transcript, List<string> notes)> TranscribeShadowingAsync(byte[] wav, string referenceExcerpt)
+    {
+        if (wav == null || wav.Length == 0) throw new ArgumentException("No recording.", nameof(wav));
+        string reference = referenceExcerpt ?? "";
+        if (reference.Length > 6000) reference = reference.Substring(0, 6000);
+        string json = await GeneratePartsAsync(TextPart(ShadowTranscriptPrompt + reference) + "," + AudioPart(wav),
+                                               ShadowTranscriptSchema, "\"temperature\":0.1", AudioGradeTimeoutSeconds);
+        var notes = new List<string>();
+        string transcript = "";
+        if (MiniJson.Parse(json) is Dictionary<string, object> d)
+        {
+            transcript = TatoebaCatalog.Str(d, "transcript").Trim();
+            if (d.TryGetValue("notes", out object n) && n is List<object> list)
+                foreach (var o in list) if (o is string t && !string.IsNullOrWhiteSpace(t)) notes.Add(t.Trim());
+        }
+        else throw new Exception("Could not parse Gemini response: " + json);
+        return (transcript, notes);
+    }
+
+    private const string ShadowAdvicePrompt =
+        "日本人の英語学習者が YouTube の動画でシャドーイングをしました。下の「気付き」(英語) と「言えなかった単語」をもとに、" +
+        "次に練習するときのアドバイスを日本語で 3 つほど、それぞれ 1〜2 文で書いてください。具体的な単語や音を挙げてください。\n";
+
+    public const string ShadowAdviceSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{\"advice\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}},\"required\":[\"advice\"]}";
+
+    /// <summary>気付きと言えなかった単語から、日本語のアドバイス ("- …" の行) を作る</summary>
+    public async Task<string> ShadowAdviceAsync(IList<string> notes, IList<string> missedWords)
+    {
+        string prompt = ShadowAdvicePrompt +
+            "気付き:\n" + string.Join("\n", (notes ?? new List<string>()).Take(12).Select(x => "- " + x)) + "\n" +
+            "言えなかった単語 (多い順): " + string.Join(", ", (missedWords ?? new List<string>()).Take(40));
+        string json = await GeneratePartsAsync(TextPart(prompt), ShadowAdviceSchema, "\"temperature\":0.3");
+        var lines = new List<string>();
+        if (MiniJson.Parse(json) is Dictionary<string, object> d && d.TryGetValue("advice", out object a) && a is List<object> list)
+            foreach (var o in list) if (o is string t && !string.IsNullOrWhiteSpace(t)) lines.Add("- " + t.Trim());
+        if (lines.Count == 0) throw new Exception("Could not parse Gemini response: " + json);
+        return string.Join("\n", lines);
     }
 
     /// <summary>お手本の文を読んだ録音を聞いて、発音について短くコメントする</summary>

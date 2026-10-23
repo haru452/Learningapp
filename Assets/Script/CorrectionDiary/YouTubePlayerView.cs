@@ -23,6 +23,12 @@ public class YouTubePlayerView : MonoBehaviour
 
     /// <summary>動画が最後まで再生された</summary>
     public event Action OnEnded;
+
+    /// <summary>動画の再生が始まった (一時停止からの再開でも来る)</summary>
+    public event Action OnPlaying;
+
+    /// <summary>プレーヤーのエラー (YouTube のエラー番号など)</summary>
+    public event Action<string> OnError;
 #pragma warning restore 0067, 0169, 0414
 
     /// <summary>アプリ内で再生できるか (false のときは Show でブラウザが開く)</summary>
@@ -36,6 +42,9 @@ public class YouTubePlayerView : MonoBehaviour
 #if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
     private WebViewObject _webView;
 #endif
+
+    /// <summary>動画を表示する範囲を変える (実行時に作った画面から使う)</summary>
+    public void SetVideoArea(RectTransform area) => videoArea = area;
 
     public void Show(string videoId)
     {
@@ -80,7 +89,12 @@ public class YouTubePlayerView : MonoBehaviour
     private void OnJsMessage(string msg)
     {
         if (msg == "ended") OnEnded?.Invoke();
-        else if (msg.StartsWith("error:")) Debug.LogWarning("[YouTubePlayerView] Player " + msg);
+        else if (msg == "playing") OnPlaying?.Invoke();
+        else if (msg.StartsWith("error:"))
+        {
+            Debug.LogWarning("[YouTubePlayerView] Player " + msg);
+            OnError?.Invoke(msg);
+        }
     }
 
     // videoArea の画面上の位置に合わせて WebView を置く
@@ -132,7 +146,10 @@ function onYouTubeIframeAPIReady() {
     width: '100%', height: '100%', videoId: '" + videoId + @"',
     playerVars: { playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, origin: '" + origin + @"' },
     events: {
-      onStateChange: function (e) { if (e.data === YT.PlayerState.ENDED) notify('ended'); },
+      onStateChange: function (e) {
+        if (e.data === YT.PlayerState.ENDED) notify('ended');
+        else if (e.data === YT.PlayerState.PLAYING) notify('playing');
+      },
       onError: function (e) { notify('error:' + e.data); }
     }
   });

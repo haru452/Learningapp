@@ -182,33 +182,6 @@ public class RepeatAudioPlayer : MonoBehaviour
         }
     }
 
-    /// <summary>長い音声 (番組) の start〜end 秒を切り出した AudioClip を作る (モノラル)。slow なら 0.75 倍</summary>
-    public static AudioClip MakeSegment(AudioClip full, double start, double end, bool slow)
-    {
-        if (full == null) return null;
-        int freq = full.frequency, ch = full.channels;
-        int from = Math.Max(0, Math.Min(full.samples - 1, (int)(start * freq)));
-        int to = Math.Max(from + 1, Math.Min(full.samples, (int)(end * freq)));
-        int length = to - from;
-        var data = new float[length * ch];
-        if (!full.GetData(data, from)) return null;
-        float[] mono = data;
-        if (ch > 1)
-        {
-            mono = new float[length];
-            for (int i = 0; i < length; i++)
-            {
-                float sum = 0;
-                for (int c = 0; c < ch; c++) sum += data[i * ch + c];
-                mono[i] = sum / ch;
-            }
-        }
-        if (slow) mono = TimeStretch.Stretch(mono, freq, SlowSpeed);
-        var clip = AudioClip.Create("segment", mono.Length, 1, freq, false);
-        clip.SetData(mono, 0);
-        return clip;
-    }
-
     public void Stop()
     {
         if (_source != null) _source.Stop();
