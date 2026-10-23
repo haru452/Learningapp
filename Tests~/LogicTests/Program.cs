@@ -325,6 +325,10 @@ public static class LogicTests
         };
         var rj = JsonDocument.Parse(RepeatRpc.ResultsJson(rows)).RootElement;
         Check(rj[0].GetProperty("mode").GetString() == "shadow" && rj[1].GetProperty("mode").GetString() == "repeat", "rpc: mode (empty -> repeat)");
+        Check(rj[0].GetProperty("sentence").GetString() == "" && rj[0].GetProperty("heard").GetString() == ""
+              && rj[0].GetProperty("accuracy").GetInt32() == 100, "rpc: shadow sends the score only (no BBC text, no heard)");
+        Check(rj[1].GetProperty("sentence").GetString() == "We play soccer." && rj[1].GetProperty("heard").GetString() == "we play",
+              "rpc: repeat still sends text");
 
         string shadowArgs = RepeatRpc.SaveArgs(rows, new DateTime(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc));
         string repeatArgs = RepeatRpc.SaveArgs(rows.Skip(1).ToList(), new DateTime(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc));

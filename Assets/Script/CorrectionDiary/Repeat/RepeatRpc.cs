@@ -17,8 +17,9 @@ public static class RepeatRpc
             {
                 var r = results[i];
                 if (i > 0) sb.Append(',');
-                sb.Append("{\"sentence\":").Append(Str(r.sentence))
-                  .Append(",\"heard\":").Append(Str(r.heard))
+                bool shadow = r.mode == "shadow";   // シャドーイングは点数だけ (BBC の英文・言った内容は送らない。Discord にだけ送る)
+                sb.Append("{\"sentence\":").Append(Str(shadow ? "" : r.sentence))
+                  .Append(",\"heard\":").Append(Str(shadow ? "" : r.heard))
                   .Append(",\"accuracy\":").Append(r.accuracy.ToString(CultureInfo.InvariantCulture))
                   .Append(",\"replays\":").Append(r.replays.ToString(CultureInfo.InvariantCulture))
                   .Append(",\"source\":").Append(Str(r.source))
