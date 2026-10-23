@@ -107,7 +107,7 @@ public class RepeatPracticeManager : MonoBehaviour
         // 読み上げ・書き起こしはリピーティング用のキー (無ければ日記のキー)。上限ならほかのキーを借りる
         string ttsKey = ApiSecrets.Pick(secrets.geminiTtsApiKey, geminiApiKey);
         _gemini = new GeminiApiClient(ttsKey, geminiModel, geminiFallbackModel,
-            backupApiKeys: new[] { geminiApiKey, secrets.geminiSummaryApiKey, secrets.geminiTopicApiKey });
+            backupApiKeys: new[] { geminiApiKey, secrets.geminiSummaryApiKey, secrets.geminiTopicApiKey, secrets.geminiShadowApiKey });
         player.Configure(_gemini, ttsModel, ttsVoice);
 
         discordWebhookUrl = ApiSecrets.Pick(secrets.repeatDiscordWebhookUrl, discordWebhookUrl);
@@ -138,14 +138,19 @@ public class RepeatPracticeManager : MonoBehaviour
         _shadowUi = new ShadowUi(mainButton, statusText);
         var video = GetComponent<YouTubePlayerView>();
         if (video == null) video = gameObject.AddComponent<YouTubePlayerView>();
-        var youtube = new YouTubeSearchClient(ApiSecrets.Data.youtubeApiKey);
+        // シャドーイングは専用のキー (空ならリピーティングのキー)。上限ならほかのキーを借りる
+        var secrets = ApiSecrets.Data;
+        string ttsKey = ApiSecrets.Pick(secrets.geminiTtsApiKey, geminiApiKey);
+        var shadowGemini = new GeminiApiClient(ApiSecrets.Pick(secrets.geminiShadowApiKey, ttsKey), geminiModel, geminiFallbackModel,
+            backupApiKeys: new[] { ttsKey, geminiApiKey, secrets.geminiSummaryApiKey, secrets.geminiTopicApiKey });
+        var youtube = new YouTubeSearchClient(ApiSecrets.Pick(secrets.youtubeShadowApiKey, secrets.youtubeApiKey));
         _shadow = new ShadowSession(new ShadowSession.View
             {
                 MainButton = mainButton, MainLabel = mainButtonLabel, SpeakButton = speakButton, SpeakLabel = speakButtonLabel,
                 AgainButton = againButton, SlowButton = slowButton, Header = headerText, Sentence = sentenceText,
                 Result = resultText, Status = statusText, Credit = creditText, Loading = loadingIndicator, Ui = _shadowUi,
             },
-            player, video, youtube, recorder, _gemini, SaveAsync, SendShadowToDiscordAsync,
+            player, video, youtube, recorder, shadowGemini, SaveAsync, SendShadowToDiscordAsync,
             () => { var d = FindDiary(); if (d != null) d.CountOtherPracticeAsStudyDay(); });
         _shadowUi.Changed += ApplyMode;
         _shadow.StateChanged += RefreshModeButtons;

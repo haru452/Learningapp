@@ -18,6 +18,7 @@ public class ApiSecrets
     public string geminiSummaryApiKey;   // 要約練習
     public string geminiTopicApiKey;     // お題スピーキング
     public string geminiTtsApiKey;       // リピーティングの読み上げ (Gemini の声)
+    public string geminiShadowApiKey;    // シャドーイング (お手本・書き起こし・アドバイス)
     public string deeplApiKey;
     public string discordWebhookUrl;
     public string discordBotToken;
@@ -27,6 +28,7 @@ public class ApiSecrets
     public string supabaseUrl;
     public string supabaseAnonKey;
     public string youtubeApiKey;
+    public string youtubeShadowApiKey;   // シャドーイングの動画検索 (空なら youtubeApiKey)
     public string summaryDiscordWebhookUrl;   // 要約練習の結果を送る Webhook (日記とは別のチャンネル)
     public string summaryDiscordChannelId;    // Webhook の代わりに Bot で送る場合のチャンネルID
     public string pronunciationDiscordWebhookUrl;   // お題スピーキングの発音チェックのアドバイスを送る Webhook (別のチャンネル)

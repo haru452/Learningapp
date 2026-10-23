@@ -80,7 +80,7 @@ Tatoeba のデータは**著作権のため git に入れていません**（`.g
 - **イヤホンを使う**。Android でイヤホンが付いていないときは確認が出る
 - クラウド・Web には**点数だけ**（1 回 = 1 行、`mode = 'shadow'`、`source = 'youtube'`）。動画のタイトル・アドバイス・文ごとの結果は Discord にだけ送る
 - 動画は YouTube 公式の埋め込みプレーヤーで流すだけで、音声は保存しない。お手本の文字起こしと録音はスマホの中だけ（`persistentDataPath/shadow_scripts/`）。個人の学習用
-- 必要なキー：`youtubeApiKey`（検索）、`geminiTtsApiKey`（上限ならほかを借りる）。古い Supabase の場合は `supabase/repeat.sql` を実行し直す
+- キー：シャドーイング専用の `geminiShadowApiKey`（空なら `geminiTtsApiKey`、上限ならほかを借りる）と `youtubeShadowApiKey`（空なら `youtubeApiKey`）。古い Supabase の場合は `supabase/repeat.sql` を実行し直す
 
 ### Talk：3D キャラクターとの英会話（実験中）
 - VRM キャラクターと音声で会話（LLM は LLMUnity でスマホの中で動かす）
@@ -123,6 +123,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "geminiSummaryApiKey": "",
   "geminiTopicApiKey": "",
   "geminiTtsApiKey": "",
+  "geminiShadowApiKey": "",
   "deeplApiKey": "ここに DeepL のキー",
   "discordWebhookUrl": "",
   "discordBotToken": "",
@@ -132,6 +133,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "supabaseUrl": "",
   "supabaseAnonKey": "",
   "youtubeApiKey": "",
+  "youtubeShadowApiKey": "",
   "summaryDiscordWebhookUrl": "",
   "summaryDiscordChannelId": "",
   "pronunciationDiscordWebhookUrl": "",
@@ -144,9 +146,10 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 | 項目 | 取得先 | 必須 |
 |---|---|---|
 | geminiApiKey | [Google AI Studio](https://aistudio.google.com/apikey) | ✅ |
-| geminiSummaryApiKey / geminiTopicApiKey / geminiTtsApiKey | Google AI Studio（要約練習・お題・リピーティングの読み上げ用。**それぞれ別のプロジェクトで作る**と無料枠が増える） | 任意。空なら geminiApiKey。上限になったらほかのキーを借りる |
+| geminiSummaryApiKey / geminiTopicApiKey / geminiTtsApiKey / geminiShadowApiKey | Google AI Studio（要約練習・お題・リピーティングの読み上げ・シャドーイング用。**それぞれ別のプロジェクトで作る**と無料枠が増える） | 任意。空なら geminiApiKey。上限になったらほかのキーを借りる |
 | deeplApiKey | [DeepL API](https://www.deepl.com/pro-api) | DeepL Write を使う場合 |
 | youtubeApiKey | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)（YouTube Data API v3 を有効化） | 要約練習を使う場合 |
+| youtubeShadowApiKey | 同上（シャドーイングの動画検索用。別のプロジェクトで作ると上限が分かれる） | 任意。空なら youtubeApiKey |
 | supabaseUrl / supabaseAnonKey | [Supabase](https://supabase.com/) | ログイン・日記保存を使う場合 |
 | discordWebhookUrl | Discord のサーバー設定 | 任意 |
 | summaryDiscordWebhookUrl | Discord のサーバー設定（要約練習の結果を送るチャンネルの Webhook。日記とは別） | 任意。空なら要約の結果は送らない |
