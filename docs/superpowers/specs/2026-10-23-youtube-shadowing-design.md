@@ -75,7 +75,9 @@
 
 - `BbcFeed`、`ShadowEpisodeStore`、`ShadowChunker`、`ShadowFailure`、`RepeatAudioPlayer.MakeSegment`、`GeminiApiClient.SegmentEpisodeAsync` と切り出しのスキーマ、Slow ボタン、BBC の表示・README の BBC の節、Web の使い方の BBC の注記。
 - アプリの起動時に `persistentDataPath/shadow/` (BBC の MP3・JSON・フィード) と PlayerPrefs `shadow_progress_v1` を消す。
-- 公開メモ (`docs/publishing-notes.md`) を書き直す: シャドーイングは個人用 (YouTube の動画を Gemini に渡すため) で公開のコードに含めない、という形にする。記事での一言はそのまま。
+- 公開メモ (`docs/publishing-notes.md`) を書き直す: BBC の音声を使わなくなったので、シャドーイングは**記事にも公開のコードにも含めてよい**。
+  気をつけること: 動画の文字起こし・自分の録音・Discord の内容を記事やリポジトリに載せない、キーを載せない、動画は YouTube 公式の埋め込みで再生する (音声を保存しない) こと、個人の学習用であることを書く。
+  BBC 版のコードは git の履歴に残るので、公開するときは今まで通り「公開用の新しいリポジトリ」に最新のファイルだけを入れる。
 
 ## 6. テスト
 
