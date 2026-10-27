@@ -82,6 +82,13 @@ Tatoeba のデータは**著作権のため git に入れていません**（`.g
 - 動画は YouTube 公式の埋め込みプレーヤーで流すだけで、音声は保存しない。お手本の文字起こしと録音はスマホの中だけ（`persistentDataPath/shadow_scripts/`）。個人の学習用
 - キー：シャドーイング専用の `geminiShadowApiKey`（空なら `geminiTtsApiKey`、上限ならほかを借りる）と `youtubeShadowApiKey`（空なら `youtubeApiKey`）。古い Supabase の場合は `supabase/repeat.sql` を実行し直す
 
+### 苦手な発音と「今日の発音練習」
+- お題の **Pronunciation check** で、アドバイスと一緒に「どの音の問題か」が出る（`Sound: TH` など。固定 10 種類＋その他）
+- 言い直し（お題）とリピーティングで言えなかった単語のつづりからも、苦手な音を数える。リピーティングのまとめに `Watch out: TH, R / L` が出る
+- 記録はクラウド（`supabase/sounds.sql`）に保存し、Web の「よくあるミス」ページの「苦手な発音」で見られる（期間ボタン 7 / 30 / 90 日）
+- その日最初の練習のあと、30 日で 3 点以上の苦手 1 位の音について、英語ネイティブの練習動画を YouTube で探し、**発音用の Discord チャンネル**（`pronunciationDiscordWebhookUrl`）に 1 日 1 回送る（同じ動画は 30 日送らない）
+- 必要なもの：ログイン、`youtubeApiKey`、発音用の Discord。どれか無ければ送らない（練習はそのまま使える）
+
 ### Talk：3D キャラクターとの英会話（実験中）
 - VRM キャラクターと音声で会話（LLM は LLMUnity でスマホの中で動かす）
 - 返事は1文できるたびに読み上げ、口パク・うなずきも付く
