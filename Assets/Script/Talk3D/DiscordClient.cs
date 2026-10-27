@@ -220,6 +220,31 @@ public class DiscordClient
         return sb.ToString().TrimEnd();
     }
 
+    /// <summary>今日の発音練習 (苦手 1 位の音と、その練習動画) を送る (発音用のチャンネル)</summary>
+    public async Task SendSoundPracticeAsync(DateTime date, WeakSound top, YouTubeSearchClient.Video video)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("Discord is not configured.");
+        await PostAsync(SoundPracticeMessage(date, top, video));
+    }
+
+    /// <summary>今日の発音練習のメッセージ (絵文字は使わない)</summary>
+    public static string SoundPracticeMessage(DateTime date, WeakSound top, YouTubeSearchClient.Video video)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("**Today's pronunciation practice - ").Append(date.ToString("yyyy-MM-dd")).Append("**\n");
+        string label = SoundTypes.Label(top.Sound, top.Label);
+        string example = SoundTypes.Example(top.Sound);
+        sb.Append("Your weakest sound: ").Append(label).Append(example.Length > 0 ? " (" + example + ")" : "")
+          .Append(" \u2014 ").Append(top.Points).Append(" points in 30 days\n");
+        if (top.Words != null && top.Words.Count > 0)
+            sb.Append("Words you missed: ").Append(string.Join(", ", top.Words)).Append('\n');
+        if (video != null)
+            sb.Append("Video: ").Append((video.title ?? "").Trim()).Append(" (").Append((video.channel ?? "").Trim()).Append(")\n")
+              .Append(video.WatchUrl);
+        return sb.ToString().TrimEnd();
+    }
+
     /// <summary>発音チェックで Gemini からもらったアドバイスを送る (1 メッセージ)</summary>
     public async Task SendPronunciationAsync(DateTime date, string topic, string sentence, string advice)
     {

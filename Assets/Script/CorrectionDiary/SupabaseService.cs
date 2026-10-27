@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -245,6 +246,40 @@ public class SupabaseService : MonoBehaviour
         if (rows == null || rows.rows == null || rows.rows.Length == 0) return default;
         var r = rows.rows[0];
         return new StreakInfo { Streak = r.streak, LastDate = r.last_date ?? "", StudiedToday = r.studied_today, Best = r.best_streak };
+    }
+
+    // ------------------------------------------------------------
+    // 苦手な発音 (sounds.sql)
+    // ------------------------------------------------------------
+    /// <summary>苦手な音を保存する。空・ログインなしなら何もしない。失敗は Console に出すだけ (練習は止めない)</summary>
+    public async Task SavePronunciationIssuesAsync(IList<SoundHit> hits, int weight, string source, DateTime takenAtUtc)
+    {
+        if (hits == null || hits.Count == 0 || !IsConfigured || !IsSignedIn) return;
+        try
+        {
+            string takenAt = takenAtUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            await RpcAsync("save_pronunciation_issues",
+                ",\"p_issues\":" + SoundRpc.IssuesJson(hits.Take(20).ToList(), weight, source) + ",\"p_taken_at\":\"" + takenAt + "\"");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Supabase] could not save pronunciation issues: " + e.Message);
+        }
+    }
+
+    /// <summary>直近 days 日の苦手な発音 (points の多い順)。失敗・ログインなしは空</summary>
+    public async Task<List<WeakSound>> GetWeakSoundsAsync(int days = 30)
+    {
+        if (!IsConfigured || !IsSignedIn) return new List<WeakSound>();
+        try
+        {
+            return SoundRpc.ParseWeakSounds(await RpcAsync("get_my_weak_sounds", ",\"p_days\":" + days));
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Supabase] could not get weak sounds: " + e.Message);
+            return new List<WeakSound>();
+        }
     }
 
     /// <summary>週の連続 (月曜〜日曜。1 日でも練習した週が何週続いているか)。weeks.sql が無いサーバーでは例外</summary>

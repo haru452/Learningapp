@@ -550,6 +550,12 @@ public class RepeatPracticeManager : MonoBehaviour
               .Append(r.accuracy.ToString().PadLeft(3)).Append("%</color>  ").Append(Escape(r.sentence)).Append('\n');
         var missed = results.Where(r => r.accuracy < MissedThreshold).ToList();
         if (missed.Count > 0) sb.Append("\n<size=80%>Sentences under ").Append(MissedThreshold).Append("% will come back next time.</size>");
+        // 言えなかった単語のつづりから、気をつける音を出す (多い順に最大 3)
+        var soundHits = SoundGuesser.FromMissedWords(results.SelectMany(r =>
+            ReadAloudMatcher.Match(r.sentence, r.heard).Words.Where(w => !w.Matched).Select(w => w.Text)));
+        var watch = SoundGuesser.Top(soundHits, 3);
+        if (watch.Count > 0)
+            sb.Append("\n<size=80%>Watch out: ").Append(string.Join(", ", watch.Select(c => SoundTypes.Label(c, null)))).Append("</size>");
         SetText(headerText, "Summary");
         SetText(resultText, sb.ToString().TrimEnd());
         SetStatus("Saving...");
@@ -561,6 +567,11 @@ public class RepeatPracticeManager : MonoBehaviour
         DateTime takenAt = DateTime.UtcNow;
         string saveNote = await SaveAsync(results, takenAt);
         string discordError = await SendToDiscordAsync(results);
+        if (supabase != null)   // 苦手な音を保存して、今日の発音練習 (待たないで済む位置だが、保存の後に判断する)
+        {
+            await supabase.SavePronunciationIssuesAsync(soundHits, 1, "repeat", takenAt);
+            _ = DailySoundPractice.TryAsync(supabase, ApiSecrets.Data.youtubeApiKey, PronunciationDiscord());
+        }
         if (this == null) return;
         SetStatus((saveNote ?? "Saved.") + (discordError == null ? "" : "  Discord failed: " + discordError) +
                   "  Tap \"Start\" for 5 more.");
@@ -610,6 +621,16 @@ public class RepeatPracticeManager : MonoBehaviour
             Debug.LogWarning("[Shadow] Discord failed: " + e.Message);
             return FirstLine(e.Message);
         }
+    }
+
+    // 今日の発音練習を送る、発音用の Discord (お題の発音チェックと同じチャンネル)
+    private DiscordClient _pronDiscord;
+    private DiscordClient PronunciationDiscord()
+    {
+        if (_pronDiscord != null) return _pronDiscord;
+        var s = ApiSecrets.Data;
+        string token = string.IsNullOrWhiteSpace(s.pronunciationDiscordChannelId) ? "" : s.discordBotToken;
+        return _pronDiscord = new DiscordClient(s.pronunciationDiscordWebhookUrl, token, s.pronunciationDiscordChannelId);
     }
 
     private async Task<string> SendToDiscordAsync(List<RepeatResult> results)

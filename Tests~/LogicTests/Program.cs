@@ -40,6 +40,7 @@ public static class LogicTests
         TrimNoiseTests();
         ShadowTests();
         HighlightTests();
+        SoundTests();
         RepeatDiscordTests();
 
         if (_failed > 0)
@@ -254,6 +255,96 @@ public static class LogicTests
         var samples = new float[seconds * rate];
         for (int i = 0; i < samples.Length; i++) samples[i] = (float)Math.Sin(i * 0.05) * 0.3f;
         return PcmAudio.ToWav(samples, 1, rate);
+    }
+
+    // ---------------- 苦手な発音 ----------------
+    private static void SoundTests()
+    {
+        Check(SoundTypes.All.Length == 10 && SoundTypes.IsKnown("other") && SoundTypes.IsKnown("th") && !SoundTypes.IsKnown("x"), "sounds: 10 + other");
+        Check(SoundTypes.NormalizeOtherName("Z sound (zoo)") == "z" && SoundTypes.NormalizeOtherName("The \"W\" Sound") == "the w"
+              && SoundTypes.NormalizeOtherName("NG sounds") == "ng" && SoundTypes.NormalizeOtherName("(x)") == ""
+              && SoundTypes.NormalizeOtherName("  Dark   L / clear-L  ") == "dark l / clear-l", "sounds: other name normalised like SQL");
+        Check(SoundTypes.NormalizeOtherName(string.Concat(Enumerable.Repeat("ab ", 30))).Length <= 30, "sounds: other name 30 chars");
+        Check(SoundTypes.Label("th", null) == "TH" && SoundTypes.Label("r_l", null) == "R / L" && SoundTypes.Label("other", "z") == "Other: z",
+              "sounds: app labels");
+        Check(SoundTypes.Example("th") == "think / this", "sounds: example");
+        Check(SoundTypes.SearchQuery("th", null) == "how to pronounce TH sound English pronunciation"
+              && SoundTypes.SearchQuery("other", "z") == "how to pronounce z sound English pronunciation", "sounds: search query");
+
+        string G(string w) => string.Join(",", SoundGuesser.Guess(w));
+        foreach (var (w, want) in new[] { ("think", "th"), ("very", "v_b"), ("phone", "f_h"), ("right", "r_l"), ("play", "r_l"), ("tree", "r_l"),
+                                          ("car", ""), ("she", "s_sh"), ("sit", "s_sh"), ("walked", "final_consonant"), ("hand", "final_consonant"),
+                                          ("three", "th"), ("light", "r_l"), ("food", "f_h") })
+            Check(G(w) == want, "guess " + w + " -> [" + G(w) + "] want [" + want + "]");
+        var hits = SoundGuesser.FromMissedWords(new[] { "the", "this", "of", "think", "cat", "Play!", "go" });
+        Check(hits.Count == 2 && hits[0].Code == "th" && hits[0].Word == "think" && hits[1].Code == "r_l" && hits[1].Word == "play",
+              "guess: function words, short words and punctuation ignored (" + string.Join(";", hits.Select(h => h.Word + ":" + h.Code)) + ")");
+        Check(SoundGuesser.FromMissedWords(new[] { "the", "of", "a" }).Count == 0, "guess: nothing to count");
+        var top = SoundGuesser.Top(SoundGuesser.FromMissedWords(new[] { "play", "think", "three", "tree", "right", "very" }), 3);
+        Check(top.SequenceEqual(new[] { "r_l", "th", "v_b" }), "guess: top 3 by count (" + string.Join(",", top) + ")");
+
+        var json = JsonDocument.Parse(SoundRpc.IssuesJson(new List<SoundHit>
+        {
+            new SoundHit { Code = "th", Label = "ignored", Word = "think" },
+            new SoundHit { Code = "other", Label = "z", Word = "zoo" },
+        }, 1, "repeat")).RootElement;
+        Check(json.GetArrayLength() == 2 && json[0].GetProperty("sound").GetString() == "th" && json[0].GetProperty("label").GetString() == ""
+              && json[0].GetProperty("weight").GetInt32() == 1 && json[0].GetProperty("word").GetString() == "think"
+              && json[0].GetProperty("source").GetString() == "repeat" && json[1].GetProperty("label").GetString() == "z",
+              "rpc: issues JSON (label only for other)");
+        var weak = SoundRpc.ParseWeakSounds("[{\"sound\":\"th\",\"label\":\"\",\"points\":9,\"previous_points\":3,\"words\":[\"think\",\"three\"]}," +
+                                            "{\"sound\":\"other\",\"label\":\"z\",\"points\":3,\"previous_points\":null,\"words\":[]}]");
+        Check(weak.Count == 2 && weak[0].Sound == "th" && weak[0].Points == 9 && weak[0].PreviousPoints == 3
+              && weak[0].Words.SequenceEqual(new[] { "think", "three" }) && weak[1].Label == "z" && weak[1].PreviousPoints == null,
+              "rpc: parse weak sounds");
+        Check(SoundRpc.ParseWeakSounds("oops").Count == 0, "rpc: broken -> empty");
+
+        // 発音チェックの返事 (Gemini)
+        try
+        {
+            var codes = JsonDocument.Parse(GeminiApiClient.PronunciationSchema).RootElement.GetProperty("properties").GetProperty("sounds")
+                .GetProperty("items").GetProperty("properties").GetProperty("code").GetProperty("enum").EnumerateArray().Select(x => x.GetString()).ToList();
+            Check(codes.SequenceEqual(SoundTypes.All.Concat(new[] { "other" })), "pron schema: code enum = 10 + other");
+        }
+        catch (Exception e) { Check(false, "pron schema: " + e.Message); }
+        var fb = GeminiApiClient.ParsePronunciation(
+            "{\"comment\":\"Say think with your tongue.\",\"sounds\":[{\"code\":\"th\"},{\"code\":\"xx\"},{\"code\":\"other\",\"otherName\":\"\"}," +
+            "{\"code\":\"other\",\"otherName\":\"Z sound (zoo)\"},{\"code\":\"r_l\"}]}", "I think the zoo is big.");
+        Check(fb.Comment == "Say think with your tongue." && fb.Sounds.Count == 2 && fb.Sounds[0].Code == "th" && fb.Sounds[0].Word == "think"
+              && fb.Sounds[1].Code == "other" && fb.Sounds[1].Label == "z" && fb.Sounds[1].Word == "",
+              "pron: unknown / empty other dropped, max 2, word from the sentence (" + string.Join(";", fb.Sounds.Select(x => x.Code + ":" + x.Label + ":" + x.Word)) + ")");
+        Check(GeminiApiClient.ParsePronunciation("{\"comment\":\"ok\"}", "x").Sounds.Count == 0, "pron: no sounds -> empty list");
+
+        // 今日送るか
+        var now = new DateTime(2026, 10, 23, 10, 0, 0);
+        Check(!DailySoundPlanner.ShouldTry(new DateTime(2026, 10, 23, 8, 0, 0), DateTime.MinValue, 0, now), "daily: sent today -> no");
+        Check(DailySoundPlanner.ShouldTry(new DateTime(2026, 10, 22, 23, 0, 0), DateTime.MinValue, 0, new DateTime(2026, 10, 23, 3, 0, 0)),
+              "daily: sent 23:00 yesterday, now 03:00 -> yes");
+        Check(!DailySoundPlanner.ShouldTry(new DateTime(2026, 10, 23, 2, 0, 0), DateTime.MinValue, 0, new DateTime(2026, 10, 23, 2, 30, 0)),
+              "daily: 02:00 is still the day before");
+        Check(!DailySoundPlanner.ShouldTry(DateTime.MinValue, new DateTime(2026, 10, 23, 9, 0, 0), 2, now), "daily: failed twice today -> no");
+        Check(DailySoundPlanner.ShouldTry(DateTime.MinValue, new DateTime(2026, 10, 22, 9, 0, 0), 2, now), "daily: failures yesterday don't count");
+        var vids = new List<YouTubeSearchClient.Video> { new YouTubeSearchClient.Video { id = "a" }, new YouTubeSearchClient.Video { id = "b" } };
+        var sent = new Dictionary<string, DateTime> { ["a"] = new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc) };
+        var nowUtc = new DateTime(2026, 10, 23, 1, 0, 0, DateTimeKind.Utc);
+        Check(DailySoundPlanner.PickVideo(vids, sent, nowUtc)?.id == "b", "daily: skip videos sent within 30 days");
+        sent["b"] = new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc);
+        Check(DailySoundPlanner.PickVideo(vids, sent, nowUtc)?.id == "a", "daily: all sent -> first one");
+        sent["a"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        Check(DailySoundPlanner.PickVideo(vids, sent, nowUtc)?.id == "a", "daily: sent over 30 days ago is fine again");
+        Check(DailySoundPlanner.PickVideo(new List<YouTubeSearchClient.Video>(), sent, nowUtc) == null, "daily: none found -> null");
+
+        // Discord
+        var topTh = new WeakSound { Sound = "th", Label = "", Points = 9, Words = new List<string> { "think", "three", "weather" } };
+        var video = new YouTubeSearchClient.Video { id = "abc123", title = "TH sound", channel = "Teacher" };
+        string msg = DiscordClient.SoundPracticeMessage(new DateTime(2026, 10, 23), topTh, video);
+        Check(msg.StartsWith("**Today's pronunciation practice - 2026-10-23**") && msg.Contains("Your weakest sound: TH (think / this) \u2014 9 points in 30 days")
+              && msg.Contains("Words you missed: think, three, weather") && msg.Contains("TH sound (Teacher)")
+              && msg.Contains("https://www.youtube.com/watch?v=abc123"), "sound discord: " + msg);
+        string msgOther = DiscordClient.SoundPracticeMessage(new DateTime(2026, 10, 23),
+            new WeakSound { Sound = "other", Label = "z", Points = 6 }, video);
+        Check(msgOther.Contains("Your weakest sound: Other: z \u2014 6 points in 30 days") && !msgOther.Contains("Words you missed"),
+              "sound discord: other, no words line");
     }
 
     // 日記の添削: 直った語だけを色付きの太字にする (アプリの画面用)

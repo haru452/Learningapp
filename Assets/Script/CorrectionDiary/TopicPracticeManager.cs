@@ -752,6 +752,8 @@ public class TopicPracticeManager : MonoBehaviour
 
         var match = ReadAloudMatcher.Match(_readSentences[_readIndex], heard);
         _readScores.Add(match.AccuracyPercent);
+        // 言えなかった単語のつづりから苦手な音を数える (重み 1) → 今日の発音練習 (待たない)
+        SaveSoundsAndPractice(SoundGuesser.FromMissedWords(match.Words.Where(w => !w.Matched).Select(w => w.Text)), 1, "read_aloud");
         var sb = new StringBuilder();
         foreach (var w in match.Words)
             sb.Append("<color=").Append(w.Matched ? MatchColor : MissColor).Append('>').Append(w.Text).Append("</color> ");
@@ -760,6 +762,21 @@ public class TopicPracticeManager : MonoBehaviour
         _lastReadResult = sb.ToString();
         SetStatus("Tap \"Next\" for the next sentence, or check your pronunciation.");
         RefreshReadAloud();
+    }
+
+    // 苦手な音を保存してから、今日の発音練習を送るか判断する (画面は待たない。失敗は Console だけ)
+    private async void SaveSoundsAndPractice(List<SoundHit> hits, int weight, string source)
+    {
+        try
+        {
+            if (supabase == null) return;
+            await supabase.SavePronunciationIssuesAsync(hits, weight, source, DateTime.UtcNow);
+            await DailySoundPractice.TryAsync(supabase, ApiSecrets.Data.youtubeApiKey, _pronDiscord);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Topic] sounds: " + e.Message);
+        }
     }
 
     private void FinishReadAloud()
@@ -820,9 +837,13 @@ public class TopicPracticeManager : MonoBehaviour
         try
         {
             string sentence = _readSentences[_readIndex];
-            _lastPronComment = await _gemini.CheckPronunciationAsync(sentence, wav);
+            var feedback = await _gemini.CheckPronunciationAsync(sentence, wav);
+            _lastPronComment = feedback.Comment;
+            if (feedback.Sounds.Count > 0)
+                _lastPronComment += "\nSound: " + string.Join(", ", feedback.Sounds.Select(x => SoundTypes.Label(x.Code, x.Label)));
             SetStatus("Pronunciation checked.");
-            SendPronunciationToDiscord(sentence, _lastPronComment);   // 待たない
+            SendPronunciationToDiscord(sentence, feedback.Comment);   // 待たない
+            SaveSoundsAndPractice(feedback.Sounds, 3, "check");      // Gemini の判定 (重み 3)
         }
         catch (Exception e)
         {

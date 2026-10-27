@@ -439,10 +439,54 @@ public class GeminiApiClient
     private const string PronunciationPrompt =
         "The attached audio is an English learner reading this sentence aloud:\n\"{0}\"\n" +
         "In 2-3 short sentences of simple English, say which words were hard to understand and how to say them " +
-        "more clearly. If it was clear, say so and give one small tip.";
+        "more clearly. If it was clear, say so and give one small tip.\n" +
+        "Also give 0 to 2 \"sounds\" the learner had trouble with, using these codes: " +
+        "th (think/this), r_l (R vs L), v_b (V vs B), f_h (F vs H), s_sh (S vs SH), vowel (cat/cut/cot), " +
+        "long_short (ship/sheep), final_consonant (dropped final consonants), extra_vowel (adding vowels after consonants), " +
+        "stress (word stress). Use \"other\" with a short English otherName (for example \"Z sound\") only when none of these fits. " +
+        "Give an empty list if the pronunciation was clear.";
 
     public const string PronunciationSchema =
-        "{\"type\":\"OBJECT\",\"properties\":{\"comment\":{\"type\":\"STRING\"}},\"required\":[\"comment\"]}";
+        "{\"type\":\"OBJECT\",\"properties\":{\"comment\":{\"type\":\"STRING\"}," +
+        "\"sounds\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"OBJECT\",\"properties\":{" +
+        "\"code\":{\"type\":\"STRING\",\"enum\":[\"th\",\"r_l\",\"v_b\",\"f_h\",\"s_sh\",\"vowel\",\"long_short\"," +
+        "\"final_consonant\",\"extra_vowel\",\"stress\",\"other\"]},\"otherName\":{\"type\":\"STRING\"}},\"required\":[\"code\"]}}}," +
+        "\"required\":[\"comment\"]}";
+
+    /// <summary>発音チェックの結果: アドバイスと、苦手な音 (最大 2)</summary>
+    public class PronunciationFeedback
+    {
+        public string Comment = "";
+        public List<SoundHit> Sounds = new List<SoundHit>();
+    }
+
+    /// <summary>
+    /// 発音チェックの返事を読む。知らないコード・名前が空のその他は落とし、最大 2 個。
+    /// Word は、読んだ文の中でつづりからも同じ音になる最初の語 (無ければ空)
+    /// </summary>
+    public static PronunciationFeedback ParsePronunciation(string json, string sentence)
+    {
+        var fb = new PronunciationFeedback();
+        if (!(MiniJson.Parse(json ?? "") is Dictionary<string, object> d)) return fb;
+        fb.Comment = TatoebaCatalog.Str(d, "comment").Trim();
+        if (!d.TryGetValue("sounds", out object arr) || !(arr is List<object> list)) return fb;
+        foreach (var o in list)
+        {
+            if (fb.Sounds.Count >= 2) break;
+            if (!(o is Dictionary<string, object> s)) continue;
+            string code = TatoebaCatalog.Str(s, "code").Trim();
+            if (!SoundTypes.IsKnown(code)) continue;
+            string label = code == SoundTypes.Other ? SoundTypes.NormalizeOtherName(TatoebaCatalog.Str(s, "otherName")) : "";
+            if (code == SoundTypes.Other && label.Length == 0) continue;
+            if (fb.Sounds.Any(x => x.Code == code && x.Label == label)) continue;
+            string word = code == SoundTypes.Other ? "" :
+                (sentence ?? "").Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(w => new string(w.ToLowerInvariant().Where(c => (c >= 'a' && c <= 'z') || c == '\'').ToArray()))
+                    .FirstOrDefault(w => SoundGuesser.Guess(w).Contains(code)) ?? "";
+            fb.Sounds.Add(new SoundHit { Code = code, Label = label, Word = word });
+        }
+        return fb;
+    }
 
     /// <summary>お題を1つ作る。weakTypes: 苦手なミスの種類 (それを使いやすいお題にする)。recentTopics: 最近のお題 (避ける)</summary>
     public async Task<TopicPrompt> GenerateTopicAsync(string kind, IList<string> weakTypes, IList<string> recentTopics)
@@ -587,16 +631,18 @@ public class GeminiApiClient
         return string.Join("\n", lines);
     }
 
-    /// <summary>お手本の文を読んだ録音を聞いて、発音について短くコメントする</summary>
-    public async Task<string> CheckPronunciationAsync(string expectedText, byte[] wav)
+    /// <summary>お手本の文を読んだ録音を聞いて、発音について短くコメントし、苦手な音 (最大 2) も返す</summary>
+    public async Task<PronunciationFeedback> CheckPronunciationAsync(string expectedText, byte[] wav)
     {
         if (wav == null || wav.Length == 0) throw new ArgumentException("No recording.", nameof(wav));
         string prompt = PronunciationPrompt.Replace("{0}", expectedText ?? "");
         string innerJson = await GeneratePartsAsync(TextPart(prompt) + "," + AudioPart(wav), PronunciationSchema);
-        var result = JsonUtility.FromJson<PronunciationResult>(innerJson);
-        if (result == null || string.IsNullOrWhiteSpace(result.comment))
+        PronunciationFeedback fb;
+        try { fb = ParsePronunciation(innerJson, expectedText); }
+        catch (Exception) { fb = new PronunciationFeedback(); }
+        if (string.IsNullOrWhiteSpace(fb.Comment))
             throw new Exception("Could not parse Gemini response: " + innerJson);
-        return result.comment.Trim();
+        return fb;
     }
 
     /// <summary>空のミスを取り除き、種類を 10 種類のどれかにそろえる</summary>
