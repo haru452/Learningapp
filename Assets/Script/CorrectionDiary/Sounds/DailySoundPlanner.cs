@@ -9,7 +9,8 @@ public static class DailySoundPlanner
     public const int AvoidDays = 30;
 
     /// <summary>練習の日 (夜 3 時より前は前の日)</summary>
-    public static DateTime PracticeDay(DateTime local) => local.AddHours(-DayBoundaryHour).Date;
+    public static DateTime PracticeDay(DateTime local) =>
+        local < DateTime.MinValue.AddHours(DayBoundaryHour) ? local.Date : local.AddHours(-DayBoundaryHour).Date;   // MinValue = まだ無い
 
     /// <summary>今日まだ送っていなくて、今日 2 回失敗していなければ true</summary>
     public static bool ShouldTry(DateTime lastSentLocal, DateTime lastFailLocal, int failsToday, DateTime nowLocal)

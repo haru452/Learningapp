@@ -39,12 +39,12 @@ public static class DailySoundPractice
             if (top == null || top.Points < MinPoints) return;   // まだ数が少ない: 送らない (失敗ではない)
 
             var youtube = new YouTubeSearchClient(youtubeApiKey);
-            var found = await youtube.SearchVideosByTitleAsync(SoundTypes.SearchQuery(top.Sound, top.Label), 240, 1200, 5);
+            var found = await youtube.SearchVideosByTitleAsync(SoundTypes.SearchQuery(top.Sound, top.Label), 240, 1200, 15);   // 30 日同じ動画を避けられるように多めに
             var sent = LoadVideos();
             var video = DailySoundPlanner.PickVideo(found, sent, DateTime.UtcNow);
             if (video == null) throw new Exception("no practice video found");
 
-            await pronDiscord.SendSoundPracticeAsync(now, top, video);
+            await pronDiscord.SendSoundPracticeAsync(DailySoundPlanner.PracticeDay(now), top, video);   // 夜 3 時区切りの日付
             Save(SentKey, now);
             sent[video.id] = DateTime.UtcNow;
             SaveVideos(sent);

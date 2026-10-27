@@ -280,6 +280,12 @@ public static class LogicTests
         Check(hits.Count == 2 && hits[0].Code == "th" && hits[0].Word == "think" && hits[1].Code == "r_l" && hits[1].Word == "play",
               "guess: function words, short words and punctuation ignored (" + string.Join(";", hits.Select(h => h.Word + ":" + h.Code)) + ")");
         Check(SoundGuesser.FromMissedWords(new[] { "the", "of", "a" }).Count == 0, "guess: nothing to count");
+        Check(SoundGuesser.FromMissedWords(new[] { "that's", "there's", "they're", "them", "their", "That\u2019s" }).Count == 0,
+              "guess: contractions and them/their are function words");
+        Check(DailySoundPlanner.PracticeDay(DateTime.MinValue) == DateTime.MinValue, "daily: MinValue (never) does not throw");
+        Check(GeminiApiClient.ParsePronunciation("{\"comment\":\"x\",\"sounds\":[{\"code\":\"th\"}]}", "The weather is nice.").Sounds[0].Word == "weather",
+              "pron: example word skips function words");
+        Check(DailySoundPlanner.PracticeDay(new DateTime(2026, 10, 24, 1, 30, 0)) == new DateTime(2026, 10, 23), "daily: 01:30 belongs to the day before");
         var top = SoundGuesser.Top(SoundGuesser.FromMissedWords(new[] { "play", "think", "three", "tree", "right", "very" }), 3);
         Check(top.SequenceEqual(new[] { "r_l", "th", "v_b" }), "guess: top 3 by count (" + string.Join(",", top) + ")");
 

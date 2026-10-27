@@ -482,7 +482,7 @@ public class GeminiApiClient
             string word = code == SoundTypes.Other ? "" :
                 (sentence ?? "").Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(w => new string(w.ToLowerInvariant().Where(c => (c >= 'a' && c <= 'z') || c == '\'').ToArray()))
-                    .FirstOrDefault(w => SoundGuesser.Guess(w).Contains(code)) ?? "";
+                    .FirstOrDefault(w => SoundGuesser.IsCountable(w) && SoundGuesser.Guess(w).Contains(code)) ?? "";
             fb.Sounds.Add(new SoundHit { Code = code, Label = label, Word = word });
         }
         return fb;

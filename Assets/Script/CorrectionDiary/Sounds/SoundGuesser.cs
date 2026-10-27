@@ -8,7 +8,7 @@ using System.Linq;
 public static class SoundGuesser
 {
     private static readonly HashSet<string> Skip = new HashSet<string>
-        { "the", "this", "that", "these", "those", "there", "they", "then", "than", "with", "of", "for", "from" };
+        { "the", "this", "that", "these", "those", "there", "they", "them", "their", "then", "than", "with", "of", "for", "from" };
     private static readonly string[] Clusters = { "pr", "pl", "br", "bl", "cr", "cl", "dr", "fr", "fl", "gr", "gl", "tr" };
     private static readonly string[] FinalEnds = { "ed", "st", "nd", "nt", "ld", "ct", "pt", "ks", "ts" };
 
@@ -34,10 +34,19 @@ public static class SoundGuesser
         foreach (string raw in words ?? Enumerable.Empty<string>())
         {
             string w = Clean(raw);
-            if (w.Length < 3 || Skip.Contains(w)) continue;
+            if (!IsCountable(w)) continue;
             foreach (string code in Guess(w)) hits.Add(new SoundHit { Code = code, Label = "", Word = w });
         }
         return hits;
+    }
+
+    /// <summary>数える語か (3 文字以上で、機能語ではない。that's / they're などは ' の前で判断する)</summary>
+    public static bool IsCountable(string word)
+    {
+        string w = Clean(word);
+        int apo = w.IndexOf('\'');
+        string stem = apo >= 0 ? w.Substring(0, apo) : w;
+        return w.Length >= 3 && stem.Length > 0 && !Skip.Contains(stem);
     }
 
     /// <summary>多い順のコード (同じ数なら先に出た順)</summary>
@@ -50,5 +59,5 @@ public static class SoundGuesser
 
     // 小文字にして、英字とアポストロフィだけ残す
     private static string Clean(string word) =>
-        new string((word ?? "").ToLowerInvariant().Where(c => (c >= 'a' && c <= 'z') || c == '\'').ToArray());
+        new string((word ?? "").ToLowerInvariant().Replace('\u2019', '\'').Where(c => (c >= 'a' && c <= 'z') || c == '\'').ToArray());
 }

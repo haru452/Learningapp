@@ -258,8 +258,9 @@ public class SupabaseService : MonoBehaviour
         try
         {
             string takenAt = takenAtUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
-            await RpcAsync("save_pronunciation_issues",
-                ",\"p_issues\":" + SoundRpc.IssuesJson(hits.Take(20).ToList(), weight, source) + ",\"p_taken_at\":\"" + takenAt + "\"");
+            for (int i = 0; i < hits.Count; i += 20)   // 1 回 20 件まで (サーバーの上限) なので分けて送る
+                await RpcAsync("save_pronunciation_issues",
+                    ",\"p_issues\":" + SoundRpc.IssuesJson(hits.Skip(i).Take(20).ToList(), weight, source) + ",\"p_taken_at\":\"" + takenAt + "\"");
         }
         catch (Exception e)
         {

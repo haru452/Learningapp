@@ -567,11 +567,7 @@ public class RepeatPracticeManager : MonoBehaviour
         DateTime takenAt = DateTime.UtcNow;
         string saveNote = await SaveAsync(results, takenAt);
         string discordError = await SendToDiscordAsync(results);
-        if (supabase != null)   // 苦手な音を保存して、今日の発音練習 (待たないで済む位置だが、保存の後に判断する)
-        {
-            await supabase.SavePronunciationIssuesAsync(soundHits, 1, "repeat", takenAt);
-            _ = DailySoundPractice.TryAsync(supabase, ApiSecrets.Data.youtubeApiKey, PronunciationDiscord());
-        }
+        if (supabase != null) _ = SaveSoundsAndPracticeAsync(soundHits, takenAt);   // 画面は待たない
         if (this == null) return;
         SetStatus((saveNote ?? "Saved.") + (discordError == null ? "" : "  Discord failed: " + discordError) +
                   "  Tap \"Start\" for 5 more.");
@@ -620,6 +616,20 @@ public class RepeatPracticeManager : MonoBehaviour
         {
             Debug.LogWarning("[Shadow] Discord failed: " + e.Message);
             return FirstLine(e.Message);
+        }
+    }
+
+    // 苦手な音を保存してから、今日の発音練習を送るか判断する (失敗は Console だけ)
+    private async Task SaveSoundsAndPracticeAsync(List<SoundHit> hits, DateTime takenAt)
+    {
+        try
+        {
+            await supabase.SavePronunciationIssuesAsync(hits, 1, "repeat", takenAt);
+            await DailySoundPractice.TryAsync(supabase, ApiSecrets.Data.youtubeApiKey, PronunciationDiscord());
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Repeat] sounds: " + e.Message);
         }
     }
 
