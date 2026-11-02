@@ -89,6 +89,22 @@ Tatoeba のデータは**著作権のため git に入れていません**（`.g
 - その日最初の練習のあと、30 日で 3 点以上の苦手 1 位の音について、英語ネイティブの練習動画を YouTube で探し、**発音用の Discord チャンネル**（`pronunciationDiscordWebhookUrl`）に 1 日 1 回送る（同じ動画は 30 日送らない）
 - 必要なもの：ログイン、`youtubeApiKey`、発音用の Discord。どれか無ければ送らない（練習はそのまま使える）
 
+### Vocab：単語帳
+- 画面の上で **Today / Words / Add / Settings** を切り替える
+- **Today**：初めてのときにレベル（A1 / A2 / B1 / B2）を選ぶ。`Start` で 1 回分（5 / 10 / 15 / 20 語、初期 10）。出る順は 学習中 → 復習の期限が来た単語 → 新しい単語（[CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj) の自分のレベルから自動。辞書で引けたものだけ）。期限切れの復習が 50 語を超えた日は新しい単語を出さない
+  - カードはタップでめくる。表 = 単語・レベル・発音記号、`Sound`（辞書の音声。無ければ端末の読み上げ）、`Say it`（発音チェック）。裏 = 品詞ごとの意味（品詞ごとの CEFR レベル）・自分の意味・例文
+  - 評価は `Didn't know` / `Hard` / `Knew it` / `Easy`。次の復習日は **FSRS-4.5**（目標の想起率 90%、設定で 80〜95%）で計算する。`Didn't know` は学習中に戻り、次の回の最初に出る
+  - 発音チェック：その場で端末の音声認識が聞き取り `Clear` / `Close` / `Try again`。同時に録音して、回が終わったら **Gemini** がまとめて採点（`Good` / `Close` / `Practice` と日本語のアドバイス・苦手な音）。録音と認識を同時にできない端末では認識だけ（Gemini のアドバイスなし）
+  - まとめ：`My voice` / `Model`、`Score again`（Gemini が失敗したとき）、`Practice weak words`（発音だけもう一度）、条件を満たすと `Level up to ...?`（直近の新しい単語 20 個のうち 16 個以上が `Didn't know` 以外）
+  - 1 回終えた日は**連続記録に数える**（ログイン中はクラウド、Web のカレンダーは紫）
+- **Words**：学習中 / わかった（次の復習日）とレベルで絞り込み。行をタップ → `Back to learning` / `Delete`
+- **Add**：辞書で検索して追加（見つからなければ候補）、または手入力（単語と自分の意味。日本語可）
+- 単語帳・評価の履歴・辞書の結果はスマホの中だけ（`persistentDataPath/vocab/`）。クラウドには「やった日」だけ
+- Vocab 画面は、Unity のメニュー **Tools → Vocabulary → Create Vocabulary Screen** で組み立てる（`Assets/Editor/VocabScreenBuilder.cs`）。Supabase では `supabase/vocab.sql` を実行する
+- キー：`merriamWebsterApiKey`（必須。[dictionaryapi.com](https://dictionaryapi.com/) で **Learner's Dictionary** を選んで登録した Key (Dictionary)）、`geminiVocabApiKey`（任意。空なら日記のキー）
+- 出典：単語のレベルは **CEFR-J Wordlist Version 1.5**（Tono Laboratory, TUFS。研究・商用とも無料、出典の明記が必要）、辞書は **Merriam-Webster's Learner's Dictionary**。アプリの Settings にも表示している
+  - `Assets/Resources/CefrjWords.json` は CSV から変換したもの（`Tools~/cefrj/build_cefrj_words.py`、テスト：`python -m unittest test_build_cefrj_words`）。元の CSV は git に入れていない
+
 ### Talk：3D キャラクターとの英会話（実験中）
 - VRM キャラクターと音声で会話（LLM は LLMUnity でスマホの中で動かす）
 - 返事は1文できるたびに読み上げ、口パク・うなずきも付く
@@ -131,6 +147,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "geminiTopicApiKey": "",
   "geminiTtsApiKey": "",
   "geminiShadowApiKey": "",
+  "geminiVocabApiKey": "",
   "deeplApiKey": "ここに DeepL のキー",
   "discordWebhookUrl": "",
   "discordBotToken": "",
@@ -146,15 +163,17 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "pronunciationDiscordWebhookUrl": "",
   "pronunciationDiscordChannelId": "",
   "repeatDiscordWebhookUrl": "",
-  "repeatDiscordChannelId": ""
+  "repeatDiscordChannelId": "",
+  "merriamWebsterApiKey": ""
 }
 ```
 
 | 項目 | 取得先 | 必須 |
 |---|---|---|
 | geminiApiKey | [Google AI Studio](https://aistudio.google.com/apikey) | ✅ |
-| geminiSummaryApiKey / geminiTopicApiKey / geminiTtsApiKey / geminiShadowApiKey | Google AI Studio（要約練習・お題・リピーティングの読み上げ・シャドーイング用。**それぞれ別のプロジェクトで作る**と無料枠が増える） | 任意。空なら geminiApiKey。上限になったらほかのキーを借りる |
+| geminiSummaryApiKey / geminiTopicApiKey / geminiTtsApiKey / geminiShadowApiKey / geminiVocabApiKey | Google AI Studio（要約練習・お題・リピーティングの読み上げ・シャドーイング・単語帳の発音の採点用。**それぞれ別のプロジェクトで作る**と無料枠が増える） | 任意。空なら geminiApiKey。上限になったらほかのキーを借りる |
 | deeplApiKey | [DeepL API](https://www.deepl.com/pro-api) | DeepL Write を使う場合 |
+| merriamWebsterApiKey | [dictionaryapi.com](https://dictionaryapi.com/)（Merriam-Webster's **Learner's Dictionary** の Key (Dictionary)） | 単語帳を使う場合 |
 | youtubeApiKey | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)（YouTube Data API v3 を有効化） | 要約練習を使う場合 |
 | youtubeShadowApiKey | 同上（シャドーイングの動画検索用。別のプロジェクトで作ると上限が分かれる） | 任意。空なら youtubeApiKey |
 | supabaseUrl / supabaseAnonKey | [Supabase](https://supabase.com/) | ログイン・日記保存を使う場合 |
@@ -195,6 +214,7 @@ Assets/Script/
 │   ├── DiaryStreakTracker.cs / DiaryStreakView.cs … 連続記録
 │   ├── SupabaseService.cs / AuthPanel.cs / LoginGate.cs … ログイン・データ保存
 │   ├── ReminderClient.cs        … リマインダー Worker への通知
+│   ├── Vocab/                   … 単語帳（FSRS・辞書・CEFR-J・発音チェック・画面）
 │   ├── ApiSecrets.cs            … API キーの読み込み
 │   └── HttpUtil.cs              … 通信の共通処理
 ├── Talk3D/                      … 3D キャラクターとの会話（実験中）
