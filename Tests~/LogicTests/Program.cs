@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 
-public static class LogicTests
+public static partial class LogicTests
 {
     private static int _failed;
 
@@ -42,6 +42,7 @@ public static class LogicTests
         HighlightTests();
         SoundTests();
         RepeatDiscordTests();
+        VocabTests();
 
         if (_failed > 0)
         {
