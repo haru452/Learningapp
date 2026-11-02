@@ -15,6 +15,7 @@ public static partial class LogicTests
         VocabLevelTests();
         VocabJsonTests();
         CefrBundledTests();
+        VocabGeminiTests();
     }
 
     private static bool Near(double a, double b, double eps = 1e-9) => Math.Abs(a - b) <= eps;
@@ -315,5 +316,40 @@ public static partial class LogicTests
         Check(list.LevelFor("apple", new[] { "noun" }) == "A1", "cefr file: apple is A1");
         Check(list.Contains("a.m."), "cefr file: a.m. (first form)");
         Check(CefrWordList.Levels.All(l => list.WordsAt(l).Any()), "cefr file: every level has words");
+    }
+
+    // ---------------- Gemini のまとめ採点 ----------------
+    private static void VocabGeminiTests()
+    {
+        System.Text.Json.JsonElement root = default;
+        bool ok = true;
+        try { root = System.Text.Json.JsonDocument.Parse(GeminiApiClient.VocabPronSchema).RootElement; }
+        catch (Exception e) { ok = false; Check(false, "vocab schema is not valid JSON: " + e.Message); }
+        if (ok)
+        {
+            Check(root.GetProperty("type").GetString() == "ARRAY", "vocab schema: array");
+            var item = root.GetProperty("items");
+            var ratings = item.GetProperty("properties").GetProperty("rating").GetProperty("enum").EnumerateArray().Select(x => x.GetString());
+            Check(ratings.SequenceEqual(new[] { "good", "close", "practice" }), "vocab schema: ratings");
+            var codes = item.GetProperty("properties").GetProperty("sounds").GetProperty("items").GetProperty("enum")
+                .EnumerateArray().Select(x => x.GetString()).ToList();
+            Check(codes.Count == 11 && SoundTypes.All.All(c => codes.Contains(c)) && codes.Contains("other"), "vocab schema: 10 sounds + other");
+            var req = item.GetProperty("required").EnumerateArray().Select(x => x.GetString());
+            Check(req.SequenceEqual(new[] { "word", "rating", "advice" }), "vocab schema: required");
+        }
+
+        string json = "[{\"word\":\"apple\",\"rating\":\"good\",\"advice\":\"よい\",\"sounds\":[]}," +
+                      "{\"word\":\"zzz\",\"rating\":\"good\",\"advice\":\"x\"}," +
+                      "{\"word\":\"Banana\",\"rating\":\"bad\",\"advice\":\"x\"}," +
+                      "{\"word\":\"cat\",\"rating\":\"practice\",\"advice\":\"a\",\"sounds\":[\"th\",\"xx\"]}," +
+                      "{\"word\":\"apple\",\"rating\":\"practice\",\"advice\":\"dup\"}]";
+        var res = GeminiApiClient.ParseWordPronunciations(json, new[] { "apple", "banana", "cat" });
+        Check(res.Select(r => r.Word).SequenceEqual(new[] { "apple", "cat" }), "vocab gemini: unknown words/ratings dropped, first of duplicates");
+        if (res.Count == 2)
+        {
+            Check(res[0].Rating == "good" && res[0].Advice == "よい" && res[0].Sounds.Count == 0, "vocab gemini: apple");
+            Check(res[1].Sounds.SequenceEqual(new[] { "th" }), "vocab gemini: unknown sound dropped");
+        }
+        Check(GeminiApiClient.ParseWordPronunciations("not json", new[] { "a" }).Count == 0, "vocab gemini: broken -> empty");
     }
 }

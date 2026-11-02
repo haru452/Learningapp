@@ -645,6 +645,85 @@ public class GeminiApiClient
         return fb;
     }
 
+    // ------------------------------------------------------------
+    // 単語帳: 1 回分の単語の発音をまとめて採点する (最大 20 語を 1 リクエストで)
+    // ------------------------------------------------------------
+    public const int MaxVocabWords = 20;
+
+    private const string VocabPronPrompt =
+        "You are an English pronunciation coach for a Japanese learner. Each attached audio clip is the learner saying " +
+        "one English word, labeled \"Word N: <word>\" just before it. For every word, return:\n" +
+        "- word: the word exactly as labeled\n" +
+        "- rating: good (clear), close (understandable but a sound is off), or practice (hard to understand or a different word)\n" +
+        "- advice: 1-2 short sentences in Japanese about how to say it better (if good, one small tip)\n" +
+        "- sounds: 0 to 2 codes for the sounds the learner had trouble with: " +
+        "th (think/this), r_l (R vs L), v_b (V vs B), f_h (F vs H), s_sh (S vs SH), vowel (cat/cut/cot), " +
+        "long_short (ship/sheep), final_consonant (dropped final consonants), extra_vowel (adding vowels after consonants), " +
+        "stress (word stress), other (anything else). Empty if it was clear.\n" +
+        "Return one item per word, in the same order.";
+
+    public const string VocabPronSchema =
+        "{\"type\":\"ARRAY\",\"items\":{\"type\":\"OBJECT\",\"properties\":{" +
+        "\"word\":{\"type\":\"STRING\"}," +
+        "\"rating\":{\"type\":\"STRING\",\"enum\":[\"good\",\"close\",\"practice\"]}," +
+        "\"advice\":{\"type\":\"STRING\"}," +
+        "\"sounds\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\",\"enum\":[\"th\",\"r_l\",\"v_b\",\"f_h\",\"s_sh\",\"vowel\"," +
+        "\"long_short\",\"final_consonant\",\"extra_vowel\",\"stress\",\"other\"]}}}," +
+        "\"required\":[\"word\",\"rating\",\"advice\"]}}";
+
+    /// <summary>単語ごとの Gemini の判定 (good / close / practice) と日本語のアドバイス</summary>
+    public class WordPronResult
+    {
+        public string Word = "";
+        public string Rating = "";
+        public string Advice = "";
+        public List<string> Sounds = new List<string>();
+    }
+
+    /// <summary>まとめ採点の返事を読む。送っていない語・知らない判定・知らない音は捨てる。同じ語は最初だけ</summary>
+    public static List<WordPronResult> ParseWordPronunciations(string json, IList<string> words)
+    {
+        var result = new List<WordPronResult>();
+        object parsed;
+        try { parsed = MiniJson.Parse(json ?? ""); }
+        catch (FormatException) { return result; }
+        if (!(parsed is List<object> list)) return result;
+        var asked = new HashSet<string>((words ?? new string[0]).Select(VocabDeck.Key));
+        foreach (var o in list.OfType<Dictionary<string, object>>())
+        {
+            string word = VocabDeck.Key(TatoebaCatalog.Str(o, "word"));
+            string rating = TatoebaCatalog.Str(o, "rating").Trim().ToLowerInvariant();
+            if (!asked.Contains(word) || result.Any(r => r.Word == word)) continue;
+            if (rating != "good" && rating != "close" && rating != "practice") continue;
+            var sounds = o.TryGetValue("sounds", out object s) && s is List<object> sl
+                ? sl.OfType<string>().Select(x => x.Trim()).Where(SoundTypes.IsKnown).Distinct().Take(2).ToList()
+                : new List<string>();
+            result.Add(new WordPronResult { Word = word, Rating = rating, Advice = TatoebaCatalog.Str(o, "advice").Trim(), Sounds = sounds });
+        }
+        return result;
+    }
+
+    /// <summary>単語ごとの録音 (words と同じ順) をまとめて採点する。最大 20 語</summary>
+    public async Task<List<WordPronResult>> CheckWordPronunciationsAsync(IList<string> words, IList<byte[]> wavs)
+    {
+        if (words == null || wavs == null || words.Count != wavs.Count) throw new ArgumentException("words and wavs must match");
+        var sb = new System.Text.StringBuilder(TextPart(VocabPronPrompt));
+        int n = 0;
+        var sent = new List<string>();
+        for (int i = 0; i < words.Count && n < MaxVocabWords; i++)
+        {
+            if (wavs[i] == null || wavs[i].Length == 0) continue;
+            n++;
+            sent.Add(words[i]);
+            sb.Append(',').Append(TextPart("Word " + n + ": " + words[i])).Append(',').Append(AudioPart(wavs[i]));
+        }
+        if (n == 0) return new List<WordPronResult>();
+        string innerJson = await GeneratePartsAsync(sb.ToString(), VocabPronSchema, timeoutSeconds: AudioGradeTimeoutSeconds);
+        var result = ParseWordPronunciations(innerJson, sent);
+        if (result.Count == 0) throw new Exception("Could not parse Gemini response: " + innerJson);
+        return result;
+    }
+
     /// <summary>空のミスを取り除き、種類を 10 種類のどれかにそろえる</summary>
     private static Mistake[] CleanMistakes(Mistake[] mistakes)
     {
