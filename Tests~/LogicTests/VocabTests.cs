@@ -14,6 +14,7 @@ public static partial class LogicTests
         CefrTests();
         VocabLevelTests();
         VocabJsonTests();
+        CefrBundledTests();
     }
 
     private static bool Near(double a, double b, double eps = 1e-9) => Math.Abs(a - b) <= eps;
@@ -298,5 +299,21 @@ public static partial class LogicTests
         deck.MoveToLearning("apple");
         Check(k1.Status == "learning" && k1.DueAt == null, "deck: back to learning");
         Check(deck.Remove("book") && !deck.Remove("book") && deck.Cards.Count == 2, "deck: remove");
+    }
+
+    // ---------------- 同梱の CEFR-J (Assets/Resources/CefrjWords.json) ----------------
+    private static string ThisFile([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+
+    private static void CefrBundledTests()
+    {
+        string path = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(ThisFile()), "..", "..", "Assets", "Resources", "CefrjWords.json");
+        Check(System.IO.File.Exists(path), "cefr file: CefrjWords.json exists");
+        if (!System.IO.File.Exists(path)) return;
+        var list = CefrWordList.Parse(System.IO.File.ReadAllText(path));
+        Check(list.Count > 6000, "cefr file: many words (" + list.Count + ")");
+        Check(list.WordsAt("A1").Count() >= 1000, "cefr file: 1000+ A1 words (" + list.WordsAt("A1").Count() + ")");
+        Check(list.LevelFor("apple", new[] { "noun" }) == "A1", "cefr file: apple is A1");
+        Check(list.Contains("a.m."), "cefr file: a.m. (first form)");
+        Check(CefrWordList.Levels.All(l => list.WordsAt(l).Any()), "cefr file: every level has words");
     }
 }

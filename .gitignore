@@ -68,3 +68,6 @@ Assets/My assets/260913132852632.JPG.meta
 /Tools~/tatoeba/*.tar
 /Assets/Resources/RepeatSentences.json
 /Assets/Resources/RepeatSentences.json.meta
+
+# CEFR-J の元の CSV (変換した Assets/Resources/CefrjWords.json だけ入れる)
+/Tools~/cefrj/*.csv
