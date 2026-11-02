@@ -13,6 +13,7 @@ public static partial class LogicTests
         VocabPronTests();
         CefrTests();
         VocabLevelTests();
+        VocabJsonTests();
     }
 
     private static bool Near(double a, double b, double eps = 1e-9) => Math.Abs(a - b) <= eps;
@@ -228,5 +229,74 @@ public static partial class LogicTests
         recentBad.AddRange(NewReviews(0, 5, set.AddDays(2)));
         Check(!VocabLevel.ShouldSuggestUp(recentBad, set), "level: only the newest 20 count");
         Check(VocabLevel.Next("A1") == "A2" && VocabLevel.Next("B1") == "B2" && VocabLevel.Next("B2") == null, "level: next");
+    }
+
+    // ---------------- 端末の保存の形 ----------------
+    private static void VocabJsonTests()
+    {
+        var full = new VocabCard
+        {
+            Word = "apple", Cefr = "A1", Source = "manual", MyMeaning = "りんご \"赤い\"\n果物", Status = "known",
+            DueAt = VNow.AddDays(3), Stability = 3.7145, Difficulty = 5.1618, LastReviewAt = VNow, Reps = 2, MissCount = 1,
+            KnownAt = VNow.AddDays(-1), CreatedAt = VNow.AddDays(-9), PronBest = "close", PronAttempts = 3, GeminiPron = "good",
+        };
+        var empty = new VocabCard { Word = "x y", CreatedAt = VNow };
+        var back = VocabJson.DeckFromJson(VocabJson.DeckToJson(new List<VocabCard> { full, empty }));
+        Check(back.Count == 2, "vjson: 2 cards back");
+        if (back.Count == 2)
+        {
+            var b = back[0];
+            Check(b.Word == "apple" && b.Cefr == "A1" && b.Source == "manual" && b.MyMeaning == full.MyMeaning && b.Status == "known",
+                "vjson: strings round trip");
+            Check(b.DueAt == full.DueAt && b.LastReviewAt == VNow && b.KnownAt == full.KnownAt && b.CreatedAt == full.CreatedAt,
+                "vjson: dates round trip");
+            Check(b.DueAt.Value.Kind == DateTimeKind.Utc, "vjson: dates are UTC");
+            Check(Near(b.Stability, 3.7145) && Near(b.Difficulty, 5.1618) && b.Reps == 2 && b.MissCount == 1 && b.PronAttempts == 3,
+                "vjson: numbers round trip");
+            Check(b.PronBest == "close" && b.GeminiPron == "good", "vjson: pron round trip");
+            Check(back[1].DueAt == null && back[1].KnownAt == null && back[1].LastReviewAt == null, "vjson: null dates");
+        }
+        Check(VocabJson.DeckFromJson("oops").Count == 0 && VocabJson.DeckFromJson(null).Count == 0 && VocabJson.DeckFromJson("{}").Count == 0,
+            "vjson: broken -> empty");
+        var minimal = VocabJson.DeckFromJson("[{\"word\":\"X \"},{\"cefr\":\"A1\"}]");
+        Check(minimal.Count == 1 && minimal[0].Word == "x" && minimal[0].Status == "learning" && minimal[0].Reps == 0
+              && minimal[0].DueAt == null && minimal[0].Cefr == "—", "vjson: missing fields -> defaults, no word -> skipped");
+
+        var reviews = new List<VocabReview>
+        {
+            new VocabReview { Word = "apple", Rating = 3, At = VNow, ElapsedDays = 1.5, Stability = 4.2, Difficulty = 5, IsNew = true },
+        };
+        var rb = VocabJson.ReviewsFromJson(VocabJson.ReviewsToJson(reviews));
+        Check(rb.Count == 1 && rb[0].Word == "apple" && rb[0].Rating == 3 && rb[0].At == VNow && Near(rb[0].ElapsedDays, 1.5)
+              && Near(rb[0].Stability, 4.2) && rb[0].IsNew, "vjson: reviews round trip");
+        Check(VocabJson.ReviewsFromJson("[1,2").Count == 0, "vjson: broken reviews -> empty");
+
+        var dict = MerriamWebsterParser.Parse(MwApple, "apple");
+        dict.Suggestions.Add("apply");
+        var db = VocabJson.DictFromJson(VocabJson.DictToJson(dict));
+        Check(db != null && db.Found && db.Entries.Count == 1 && db.Entries[0].Ipa == dict.Entries[0].Ipa
+              && db.Entries[0].Examples.SequenceEqual(dict.Entries[0].Examples) && db.Entries[0].AudioUrl == dict.Entries[0].AudioUrl
+              && db.Entries[0].Definitions.SequenceEqual(dict.Entries[0].Definitions) && db.Suggestions.SequenceEqual(new[] { "apply" }),
+            "vjson: dictionary round trip");
+        Check(VocabJson.DictFromJson("nope") == null, "vjson: broken dictionary -> null");
+
+        // 単語帳
+        var deck = new VocabDeck(new List<VocabCard>());
+        var added = deck.Add("Apple ", "search", "", "A1", VNow);
+        Check(added != null && added.Word == "apple" && added.Status == "learning" && added.CreatedAt == VNow, "deck: add");
+        Check(deck.Add("apple", "manual", "x", "A1", VNow) == null && deck.Cards.Count == 1, "deck: same word only once");
+        Check(deck.Find(" APPLE") == added, "deck: find by key");
+        deck.Add("ice  cream", "manual", "", "—", VNow.AddMinutes(1));
+        deck.Add("book", "auto", "", "A2", VNow.AddMinutes(2));
+        Check(deck.List("learning", "—").Select(c => c.Word).SequenceEqual(new[] { "ice cream" }), "deck: filter dash");
+        Check(deck.List("learning", "A2").Select(c => c.Word).SequenceEqual(new[] { "book" }), "deck: filter A2");
+        Check(deck.List("learning", "all").Select(c => c.Word).SequenceEqual(new[] { "book", "ice cream", "apple" }),
+            "deck: learning newest first");
+        var k1 = deck.Find("apple"); k1.Status = "known"; k1.DueAt = VNow.AddDays(5);
+        var k2 = deck.Find("book"); k2.Status = "known"; k2.DueAt = VNow.AddDays(1);
+        Check(deck.List("known", "all").Select(c => c.Word).SequenceEqual(new[] { "book", "apple" }), "deck: known by next review");
+        deck.MoveToLearning("apple");
+        Check(k1.Status == "learning" && k1.DueAt == null, "deck: back to learning");
+        Check(deck.Remove("book") && !deck.Remove("book") && deck.Cards.Count == 2, "deck: remove");
     }
 }
