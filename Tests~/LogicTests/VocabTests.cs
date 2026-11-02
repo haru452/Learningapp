@@ -9,6 +9,10 @@ public static partial class LogicTests
     {
         VocabFsrsTests();
         VocabDictionaryTests();
+        VocabQueueTests();
+        VocabPronTests();
+        CefrTests();
+        VocabLevelTests();
     }
 
     private static bool Near(double a, double b, double eps = 1e-9) => Math.Abs(a - b) <= eps;
@@ -105,5 +109,124 @@ public static partial class LogicTests
         bool threw = false;
         try { MerriamWebsterParser.Parse("<html>", "x"); } catch (FormatException) { threw = true; }
         Check(threw, "mw: html -> FormatException");
+    }
+
+    // ---------------- 出題の順・1 回分 ----------------
+    private static readonly DateTime VNow = new DateTime(2026, 11, 2, 12, 0, 0, DateTimeKind.Utc);
+
+    private static VocabCard Learning(string w, int minutesAgo) =>
+        new VocabCard { Word = w, Status = "learning", CreatedAt = VNow.AddMinutes(-minutesAgo) };
+
+    private static VocabCard Known(string w, double dueInDays) =>
+        new VocabCard { Word = w, Status = "known", Stability = 5, Difficulty = 5, Reps = 1,
+                        LastReviewAt = VNow.AddDays(-5), DueAt = VNow.AddDays(dueInDays), KnownAt = VNow.AddDays(-5) };
+
+    private static void VocabQueueTests()
+    {
+        var deck = new List<VocabCard>
+        {
+            Known("due2", -2), Learning("l-new", 1), Known("future", 3), Known("due5", -5), Learning("l-old", 100), Known("due1", -1),
+        };
+        var (cards, newCount) = VocabQueue.Plan(deck, VNow, 10);
+        Check(cards.Select(c => c.Word).SequenceEqual(new[] { "l-old", "l-new", "due5", "due2", "due1" }),
+            "queue: learning (oldest first) -> due (oldest due first): " + string.Join(",", cards.Select(c => c.Word)));
+        Check(newCount == 5, "queue: new words fill the rest (" + newCount + ")");
+
+        var manyDue = Enumerable.Range(0, 51).Select(i => Known("d" + i, -1 - i)).ToList();
+        var (c51, n51) = VocabQueue.Plan(manyDue, VNow, 10);
+        Check(c51.Count == 10 && n51 == 0, "queue: over 50 due -> no new words");
+        var fiftyDue = Enumerable.Range(0, 50).Select(i => Known("d" + i, -1 - i)).ToList();
+        Check(VocabQueue.Plan(fiftyDue.Take(3).ToList(), VNow, 10).newCount == 7, "queue: 3 due -> 7 new");
+        var manyLearning = Enumerable.Range(0, 12).Select(i => Learning("l" + i, i)).ToList();
+        var (c12, n12) = VocabQueue.Plan(manyLearning, VNow, 10);
+        Check(c12.Count == 10 && n12 == 0, "queue: 12 learning, size 10 -> 10 cards, no new");
+        Check(VocabQueue.Plan(new List<VocabCard>(), VNow, 5).newCount == 5, "queue: empty deck -> all new");
+
+        var list = CefrWordList.Parse("[{\"w\":\"apple\",\"pos\":\"noun\",\"cefr\":\"A1\"},{\"w\":\"book\",\"pos\":\"noun\",\"cefr\":\"A1\"}," +
+                                      "{\"w\":\"cat\",\"pos\":\"noun\",\"cefr\":\"A1\"},{\"w\":\"dog\",\"pos\":\"noun\",\"cefr\":\"A1\"}," +
+                                      "{\"w\":\"eagle\",\"pos\":\"noun\",\"cefr\":\"B1\"}]");
+        var cand = VocabQueue.NewCandidates(list, "A1", new[] { "book", "cat" }, new Random(4));
+        Check(cand.OrderBy(x => x).SequenceEqual(new[] { "apple", "dog" }), "queue: candidates skip words in the deck and other levels");
+        Check(cand.SequenceEqual(VocabQueue.NewCandidates(list, "A1", new[] { "book", "cat" }, new Random(4))), "queue: same seed, same order");
+        Check(VocabQueue.NewCandidates(list, "A1", new[] { "apple", "book", "cat", "dog" }, new Random(1)).Count == 0, "queue: none left -> empty");
+
+        // 1 回分: 評価してカードが変わる。同じ回では出し直さない
+        var a = Learning("alpha", 10); var b = Learning("beta", 5);
+        var session = new VocabSession(new List<VocabCard> { a, b }, 0.9);
+        Check(session.Current == a && session.Count == 2 && !session.Done, "session: starts with the first card");
+        var p = session.PreviewDays(VNow);
+        Check(p.Length == 4 && p[0] == 0 && p[1] < p[2] && p[2] < p[3], "session: previews " + string.Join(",", p));
+        var rv = session.Rate(1, VNow);
+        Check(a.Status == "learning" && a.MissCount == 1 && a.DueAt == null && a.Reps == 1 && a.LastReviewAt == VNow,
+            "session: Didn't know -> learning, miss +1, no due");
+        Check(rv.Word == "alpha" && rv.Rating == 1 && rv.IsNew, "session: review of a new word");
+        Check(session.Current == b, "session: moves on (not shown again)");
+        session.Rate(3, VNow);
+        Check(b.Status == "known" && b.DueAt > VNow && b.KnownAt == VNow, "session: Knew it -> known with due date");
+        Check(session.Done && session.Current == null, "session: done after the last card");
+
+        var k = Known("again", -1);
+        DateTime firstKnown = k.KnownAt.Value;
+        var s2 = new VocabSession(new List<VocabCard> { k }, 0.9);
+        var rk = s2.Rate(4, VNow);
+        Check(k.KnownAt == firstKnown && !rk.IsNew && Near(rk.ElapsedDays, 5), "session: second Known keeps KnownAt; elapsed 5 days");
+    }
+
+    // ---------------- 発音の判定 ----------------
+    private static void VocabPronTests()
+    {
+        Check(VocabPronJudge.Judge("apple", "I said apple.") == "clear", "pron: word in the sentence -> clear");
+        Check(VocabPronJudge.Judge("Apple", "APPLE!") == "clear", "pron: case and marks ignored");
+        Check(VocabPronJudge.Judge("apple", "apples") == "close", "pron: plural is not the same -> close");
+        Check(VocabPronJudge.Judge("banana", "bandana") == "close", "pron: 1 letter off -> close");
+        Check(VocabPronJudge.Judge("banana", "orange") == "again", "pron: different word -> again");
+        Check(VocabPronJudge.Judge("banana", "") == "again", "pron: nothing heard -> again");
+        Check(VocabPronJudge.Judge("ice cream", "I like ice cream") == "clear", "pron: two words -> clear");
+        Check(VocabPronJudge.Judge("ice cream", "I like ice scream") == "close", "pron: two words, close");
+        Check(VocabPronJudge.Judge("go", "no") == "close", "pron: short word allows 1 letter");
+        Check(VocabPronJudge.Better("close", "clear") == "clear" && VocabPronJudge.Better("", "again") == "again"
+              && VocabPronJudge.Better("clear", "again") == "clear", "pron: better result");
+    }
+
+    // ---------------- CEFR-J ----------------
+    private static void CefrTests()
+    {
+        var list = CefrWordList.Parse("[{\"w\":\"light\",\"pos\":\"noun\",\"cefr\":\"A2\"},{\"w\":\"light\",\"pos\":\"adjective\",\"cefr\":\"A1\"}," +
+                                      "{\"w\":\"the\",\"pos\":\"determiner\",\"cefr\":\"A1\"},{\"w\":\"be\",\"pos\":\"be-verb\",\"cefr\":\"A1\"}," +
+                                      "{\"w\":\"can\",\"pos\":\"modal auxiliary\",\"cefr\":\"A1\"},{\"w\":\"can\",\"pos\":\"noun\",\"cefr\":\"B1\"}]");
+        Check(list.LevelFor("light", new[] { "noun" }) == "A2", "cefr: pos match -> that level");
+        Check(list.LevelFor("light", new[] { "verb" }) == "A1", "cefr: no pos match -> lowest");
+        Check(list.LevelFor("Light ", new string[0]) == "A1", "cefr: case/space and no dict pos -> lowest");
+        Check(list.LevelFor("zebra", new[] { "noun" }) == "—", "cefr: missing word -> dash");
+        Check(list.LevelFor("the", new[] { "definite article" }) == "A1", "cefr: article -> determiner");
+        Check(list.LevelForPos("be", "verb") == "A1", "cefr: be-verb matches verb");
+        Check(list.LevelForPos("can", "noun") == "B1" && list.LevelForPos("can", "modal verb") == "A1", "cefr: modal verb");
+        Check(list.LevelForPos("light", "verb") == null, "cefr: pos not in list -> null");
+        Check(list.WordsAt("A1").Contains("light") && !list.WordsAt("A2").Contains("light"), "cefr: word belongs to its lowest level");
+        Check(!list.WordsAt("B1").Contains("can"), "cefr: can is A1 only");
+        Check(CefrWordList.Parse("oops").WordsAt("A1").Count() == 0, "cefr: broken json -> empty");
+    }
+
+    // ---------------- レベルの提案 ----------------
+    private static List<VocabReview> NewReviews(int good, int bad, DateTime start) =>
+        Enumerable.Range(0, good + bad).Select(i => new VocabReview
+        {
+            Word = "w" + i, Rating = i < bad ? 1 : 3, At = start.AddMinutes(i), IsNew = true,
+        }).ToList();
+
+    private static void VocabLevelTests()
+    {
+        DateTime set = VNow.AddDays(-10);
+        Check(VocabLevel.ShouldSuggestUp(NewReviews(16, 4, set.AddDays(1)), set), "level: 16 of 20 -> suggest");
+        Check(!VocabLevel.ShouldSuggestUp(NewReviews(15, 5, set.AddDays(1)), set), "level: 15 of 20 -> no");
+        Check(!VocabLevel.ShouldSuggestUp(NewReviews(19, 0, set.AddDays(1)), set), "level: only 19 -> no");
+        Check(!VocabLevel.ShouldSuggestUp(NewReviews(20, 0, set.AddDays(-1)), set), "level: before the level was set -> no");
+        var mixed = NewReviews(20, 0, set.AddDays(1));
+        mixed.AddRange(Enumerable.Range(0, 5).Select(i => new VocabReview { Word = "r" + i, Rating = 1, At = set.AddDays(2), IsNew = false }));
+        Check(VocabLevel.ShouldSuggestUp(mixed, set), "level: reviews of old words are not counted");
+        var recentBad = NewReviews(20, 0, set.AddDays(1));
+        recentBad.AddRange(NewReviews(0, 5, set.AddDays(2)));
+        Check(!VocabLevel.ShouldSuggestUp(recentBad, set), "level: only the newest 20 count");
+        Check(VocabLevel.Next("A1") == "A2" && VocabLevel.Next("B1") == "B2" && VocabLevel.Next("B2") == null, "level: next");
     }
 }
