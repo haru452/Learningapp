@@ -86,7 +86,7 @@ Editor のメニュー **Tools → Vocabulary → Create Vocabulary Screen** (`V
 ### クラウド (連続記録だけ)
 - `supabase/vocab.sql`: `complete_vocab_session(p_timezone, p_taken_at)` → `activity_days` に `vocab` を入れ、リピーティングと同じ規則で連続記録を進める (次の日なら +1、空けば 1、同じ日は変えない)。
 - `activity_days.kind` の制約に `vocab` を足す (schema.sql / topic.sql / repeat.sql の付け直しの行も)。
-- Web: カレンダーに単語帳の色 (紫 `#845ef7`) と凡例、「やったこと」一覧に「単語帳」/ "Vocabulary"。**金色は「5 種類全部」**、銀 = 3 種類以上、銅 = 2 種類 (要確認: 4 種類で金のままにするか)。
+- Web: カレンダーに単語帳の色 (紫 `#845ef7`) と凡例、「やったこと」一覧に「単語帳」/ "Vocabulary"。**金色は「5 種類全部」** (利用者が確認済み)、銀 = 3 種類以上、銅 = 2 種類。
 
 ## 3. 辞書 (Merriam-Webster Learner's Dictionary)
 
