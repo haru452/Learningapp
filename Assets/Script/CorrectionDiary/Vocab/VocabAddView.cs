@@ -156,7 +156,13 @@ public class VocabAddView
     {
         if (_found == null) return;
         string url = _found.Entries.Select(e => e.AudioUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)) ?? "";
-        _ = _ctx.Audio.PlayWordAsync(_foundWord, url, CancellationToken.None);
+        _ = PlayAsync(_foundWord, url);
+    }
+
+    private async System.Threading.Tasks.Task PlayAsync(string word, string url)
+    {
+        try { await _ctx.Audio.PlayWordAsync(word, url, CancellationToken.None); }
+        catch (Exception e) { Debug.LogWarning("[Vocab] could not play: " + e.Message); }
     }
 
     private async System.Threading.Tasks.Task AddManualAsync()

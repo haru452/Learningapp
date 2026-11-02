@@ -17,6 +17,7 @@ public static partial class LogicTests
         CefrBundledTests();
         VocabGeminiTests();
         VocabDictionaryProblemTests();
+        VocabLoadTests();
     }
 
     private static bool Near(double a, double b, double eps = 1e-9) => Math.Abs(a - b) <= eps;
@@ -367,5 +368,20 @@ public static partial class LogicTests
         catch (DictionaryKeyException e) { threw = e.Message.Contains("merriamWebsterApiKey"); }
         Check(threw, "mw problem: ParseOrThrow -> DictionaryKeyException");
         Check(MerriamWebsterParser.ParseOrThrow(MwApple, "apple").Found, "mw problem: ParseOrThrow parses good JSON");
+    }
+
+    // ---------------- 読み込みの細かいところ ----------------
+    private static void VocabLoadTests()
+    {
+        // 同じ語が deck.json に 2 回あっても 1 枚 (最初のもの)
+        var dup = VocabJson.DeckFromJson("[{\"word\":\"Apple\",\"reps\":3},{\"word\":\"apple \",\"reps\":9},{\"word\":\"book\"}]");
+        Check(dup.Count == 2 && dup[0].Word == "apple" && dup[0].Reps == 3 && dup[1].Word == "book", "vjson: duplicate words merged on load");
+
+        // 履歴が読めるか (読めないファイルは上書きせずに退避するため)
+        Check(VocabJson.TryReviewsFromJson("[]", out var r0) && r0.Count == 0, "vjson: [] reviews readable");
+        Check(VocabJson.TryReviewsFromJson("[{\"word\":\"a\",\"rating\":3}]", out var r1) && r1.Count == 1, "vjson: reviews readable");
+        Check(!VocabJson.TryReviewsFromJson("[{\"word\":", out _), "vjson: broken reviews not readable");
+        Check(!VocabJson.TryReviewsFromJson("{\"word\":\"a\"}", out _), "vjson: object (not array) not readable");
+        Check(VocabJson.TryReviewsFromJson("", out var r2) && r2.Count == 0, "vjson: empty file = no reviews");
     }
 }

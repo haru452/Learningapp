@@ -75,25 +75,25 @@ public static class MerriamWebsterParser
 
     private static string IdWord(Dictionary<string, object> e)
     {
-        string id = e.TryGetValue("meta", out object m) && m is Dictionary<string, object> meta ? TatoebaCatalog.Str(meta, "id") : "";
+        string id = e.TryGetValue("meta", out object m) && m is Dictionary<string, object> meta ? JsonGet.Str(meta, "id") : "";
         int colon = id.IndexOf(':');
         return (colon >= 0 ? id.Substring(0, colon) : id).Trim();
     }
 
     private static DictEntry ReadEntry(Dictionary<string, object> e)
     {
-        var entry = new DictEntry { Pos = TatoebaCatalog.Str(e, "fl").Trim() };
+        var entry = new DictEntry { Pos = JsonGet.Str(e, "fl").Trim() };
         var hwi = e.TryGetValue("hwi", out object h) ? h as Dictionary<string, object> : null;
-        string hw = hwi != null ? TatoebaCatalog.Str(hwi, "hw").Replace("*", "").Trim() : "";
+        string hw = hwi != null ? JsonGet.Str(hwi, "hw").Replace("*", "").Trim() : "";
         entry.Headword = hw.Length > 0 ? Clean(hw) : IdWord(e);
 
         if (hwi != null && hwi.TryGetValue("prs", out object p) && p is List<object> prs)
         {
             foreach (var pr in prs.OfType<Dictionary<string, object>>())
             {
-                if (entry.Ipa.Length == 0) entry.Ipa = TatoebaCatalog.Str(pr, "ipa").Trim();
+                if (entry.Ipa.Length == 0) entry.Ipa = JsonGet.Str(pr, "ipa").Trim();
                 if (entry.AudioUrl.Length == 0 && pr.TryGetValue("sound", out object so) && so is Dictionary<string, object> sound)
-                    entry.AudioUrl = AudioUrl(TatoebaCatalog.Str(sound, "audio"));
+                    entry.AudioUrl = AudioUrl(JsonGet.Str(sound, "audio"));
             }
         }
 
@@ -115,7 +115,7 @@ public static class MerriamWebsterParser
                 foreach (var v in vis.OfType<Dictionary<string, object>>())
                 {
                     if (into.Count >= MaxExamples) return;
-                    string t = Clean(TatoebaCatalog.Str(v, "t"));
+                    string t = Clean(JsonGet.Str(v, "t"));
                     if (t.Length > 0) into.Add(t);
                 }
                 return;

@@ -691,14 +691,14 @@ public class GeminiApiClient
         var asked = new HashSet<string>((words ?? new string[0]).Select(VocabDeck.Key));
         foreach (var o in list.OfType<Dictionary<string, object>>())
         {
-            string word = VocabDeck.Key(TatoebaCatalog.Str(o, "word"));
-            string rating = TatoebaCatalog.Str(o, "rating").Trim().ToLowerInvariant();
+            string word = VocabDeck.Key(JsonGet.Str(o, "word"));
+            string rating = JsonGet.Str(o, "rating").Trim().ToLowerInvariant();
             if (!asked.Contains(word) || result.Any(r => r.Word == word)) continue;
             if (rating != "good" && rating != "close" && rating != "practice") continue;
             var sounds = o.TryGetValue("sounds", out object s) && s is List<object> sl
                 ? sl.OfType<string>().Select(x => x.Trim()).Where(SoundTypes.IsKnown).Distinct().Take(2).ToList()
                 : new List<string>();
-            result.Add(new WordPronResult { Word = word, Rating = rating, Advice = TatoebaCatalog.Str(o, "advice").Trim(), Sounds = sounds });
+            result.Add(new WordPronResult { Word = word, Rating = rating, Advice = JsonGet.Str(o, "advice").Trim(), Sounds = sounds });
         }
         return result;
     }

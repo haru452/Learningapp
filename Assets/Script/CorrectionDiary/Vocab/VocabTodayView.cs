@@ -518,7 +518,12 @@ public class VocabTodayView
                 VocabStore.DeleteRecording(r.Word);   // 採点が済んだ録音は消す (My voice 用にメモリには残す)
             }
             _ctx.SaveDeck();
-            _ctx.SetStatus("Done. Tap \"Start\" for more words.");
+            // Gemini が返さなかった単語があれば、[Score again] でその単語だけもう一度
+            int missing = words.Count(w => !_gemini.ContainsKey(w));
+            _geminiFailed = missing > 0;
+            _ctx.SetStatus(missing > 0
+                ? missing + (missing == 1 ? " word was" : " words were") + " not checked. Tap \"Score again\"."
+                : "Done. Tap \"Start\" for more words.");
         }
         catch (Exception e)
         {

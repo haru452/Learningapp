@@ -23,11 +23,11 @@ public class CefrWordList
             if (!(MiniJson.Parse(json ?? "") is List<object> rows)) return list;
             foreach (var r in rows.OfType<Dictionary<string, object>>())
             {
-                string w = VocabDeck.Key(TatoebaCatalog.Str(r, "w"));
-                string cefr = TatoebaCatalog.Str(r, "cefr").Trim().ToUpperInvariant();
+                string w = VocabDeck.Key(JsonGet.Str(r, "w"));
+                string cefr = JsonGet.Str(r, "cefr").Trim().ToUpperInvariant();
                 if (w.Length == 0 || LevelIndex(cefr) < 0) continue;
                 if (!list._byWord.TryGetValue(w, out var entries)) list._byWord[w] = entries = new List<(string, string)>();
-                entries.Add((TatoebaCatalog.Str(r, "pos").Trim().ToLowerInvariant(), cefr));
+                entries.Add((JsonGet.Str(r, "pos").Trim().ToLowerInvariant(), cefr));
             }
         }
         catch (FormatException) { list._byWord.Clear(); }

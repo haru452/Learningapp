@@ -46,7 +46,16 @@ public static class VocabStore
 
     public static List<VocabReview> LoadReviews()
     {
-        try { return File.Exists(ReviewsPath) ? VocabJson.ReviewsFromJson(File.ReadAllText(ReviewsPath, Encoding.UTF8)) : new List<VocabReview>(); }
+        try
+        {
+            if (!File.Exists(ReviewsPath)) return new List<VocabReview>();
+            if (VocabJson.TryReviewsFromJson(File.ReadAllText(ReviewsPath, Encoding.UTF8), out var reviews)) return reviews;
+            // 読めない履歴は消さずに退避する (次の評価で上書きしない)
+            Debug.LogWarning("[Vocab] reviews.json could not be read. Moved to reviews.broken.json");
+            File.Copy(ReviewsPath, Path.Combine(Root, "reviews.broken.json"), true);
+            File.Delete(ReviewsPath);
+            return new List<VocabReview>();
+        }
         catch (Exception e)
         {
             Debug.LogWarning("[Vocab] could not load reviews: " + e.Message);

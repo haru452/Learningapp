@@ -33,10 +33,11 @@ public static class VocabJson
     public static List<VocabCard> DeckFromJson(string json)
     {
         var list = new List<VocabCard>();
+        var seen = new HashSet<string>();
         foreach (var d in Rows(json))
         {
             string word = VocabDeck.Key(Str(d, "word"));
-            if (word.Length == 0) continue;
+            if (word.Length == 0 || !seen.Add(word)) continue;   // 同じ語は最初の 1 枚だけ
             list.Add(new VocabCard
             {
                 Word = word,
@@ -75,6 +76,17 @@ public static class VocabJson
             sb.Append('}');
         }
         return sb.Append(']').ToString();
+    }
+
+    /// <summary>履歴として読めるか (空のファイルは「履歴なし」として読める)。読めなければ false</summary>
+    public static bool TryReviewsFromJson(string json, out List<VocabReview> reviews)
+    {
+        reviews = new List<VocabReview>();
+        if (string.IsNullOrWhiteSpace(json)) return true;
+        try { if (!(MiniJson.Parse(json) is List<object>)) return false; }
+        catch (FormatException) { return false; }
+        reviews = ReviewsFromJson(json);
+        return true;
     }
 
     public static List<VocabReview> ReviewsFromJson(string json) =>

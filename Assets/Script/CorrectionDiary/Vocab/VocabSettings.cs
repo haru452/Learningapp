@@ -18,7 +18,8 @@ public static class VocabSettings
         }
         set
         {
-            if (CefrWordList.LevelIndex(value) < 0) return;
+            // 今と同じレベルを押し直しただけなら、提案の数え始め (vocab_level_set_at) は変えない
+            if (CefrWordList.LevelIndex(value) < 0 || value == Level) return;
             PlayerPrefs.SetString("vocab_level", value);
             PlayerPrefs.SetString("vocab_level_set_at", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             PlayerPrefs.Save();
