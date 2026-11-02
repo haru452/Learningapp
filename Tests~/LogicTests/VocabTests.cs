@@ -8,6 +8,7 @@ public static partial class LogicTests
     private static void VocabTests()
     {
         VocabFsrsTests();
+        VocabDictionaryTests();
     }
 
     private static bool Near(double a, double b, double eps = 1e-9) => Math.Abs(a - b) <= eps;
@@ -58,5 +59,51 @@ public static partial class LogicTests
         };
         foreach (var (days, text) in labels)
             Check(Fsrs.IntervalLabel(days) == text, "fsrs label " + days + " -> " + Fsrs.IntervalLabel(days));
+    }
+    // ---------------- 辞書 (Merriam-Webster Learner's) ----------------
+    private const string MwApple =
+        "[{\"meta\":{\"id\":\"apple pie\"},\"hwi\":{\"hw\":\"apple pie\"},\"fl\":\"noun\",\"shortdef\":[\"a pie\"]}," +
+        "{\"meta\":{\"id\":\"apple:1\",\"stems\":[\"apple\"]},\"hwi\":{\"hw\":\"ap*ple\",\"prs\":[{\"ipa\":\"ˈæpəl\",\"sound\":{\"audio\":\"apple001\"}}]}," +
+        "\"fl\":\"noun\",\"shortdef\":[\"a round fruit\",\"the tree\"]," +
+        "\"def\":[{\"sseq\":[[[\"sense\",{\"dt\":[[\"text\",\"{bc}a fruit\"],[\"vis\",[{\"t\":\"an {it}apple{/it} a day\"},{\"t\":\"{wi}apples{/wi} are red\"},{\"t\":\"third\"}]]]}]]]}]}]";
+
+    private static void VocabDictionaryTests()
+    {
+        var r = MerriamWebsterParser.Parse(MwApple, "apple");
+        Check(r.Found && r.Entries.Count == 1, "mw: only the entry whose id is the word");
+        if (r.Entries.Count == 1)
+        {
+            var e = r.Entries[0];
+            Check(e.Headword == "apple", "mw: headword without * (" + e.Headword + ")");
+            Check(e.Pos == "noun" && e.Ipa == "ˈæpəl", "mw: pos and ipa");
+            Check(e.Definitions.SequenceEqual(new[] { "a round fruit", "the tree" }), "mw: shortdef");
+            Check(e.Examples.SequenceEqual(new[] { "an apple a day", "apples are red" }), "mw: 2 examples from vis, cleaned");
+            Check(e.AudioUrl == "https://media.merriam-webster.com/audio/prons/en/us/mp3/a/apple001.mp3", "mw: audio url " + e.AudioUrl);
+        }
+        var other = MerriamWebsterParser.Parse(MwApple, "pie");
+        Check(other.Found && other.Entries.Count == 1 && other.Entries[0].Headword == "apple pie", "mw: no match -> first entry");
+
+        var sug = MerriamWebsterParser.Parse("[\"apply\",\"apple\"]", "appel");
+        Check(!sug.Found && sug.Suggestions.SequenceEqual(new[] { "apply", "apple" }), "mw: strings -> suggestions");
+        var none = MerriamWebsterParser.Parse("[]", "zzz");
+        Check(!none.Found && none.Suggestions.Count == 0 && none.Entries.Count == 0, "mw: [] -> not found");
+
+        Check(MerriamWebsterParser.Clean("{bc}a {it}red{/it} fruit {ldquo}x{rdquo} {sx|pome||}") == "a red fruit “x” pome",
+            "mw: clean markup -> " + MerriamWebsterParser.Clean("{bc}a {it}red{/it} fruit {ldquo}x{rdquo} {sx|pome||}"));
+        Check(MerriamWebsterParser.Clean("see {a_link|run} and {d_link|walk|walk:1}") == "see run and walk", "mw: links keep the word");
+
+        const string Base = "https://media.merriam-webster.com/audio/prons/en/us/mp3/";
+        Check(MerriamWebsterParser.AudioUrl("bixapple01") == Base + "bix/bixapple01.mp3", "mw: bix folder");
+        Check(MerriamWebsterParser.AudioUrl("ggask01") == Base + "gg/ggask01.mp3", "mw: gg folder");
+        Check(MerriamWebsterParser.AudioUrl("3d00001") == Base + "number/3d00001.mp3", "mw: number folder");
+        Check(MerriamWebsterParser.AudioUrl("_aaa") == Base + "number/_aaa.mp3", "mw: symbol -> number folder");
+        Check(MerriamWebsterParser.AudioUrl("") == "", "mw: no audio -> empty");
+
+        var bare = MerriamWebsterParser.Parse("[{\"meta\":{\"id\":\"go\"},\"shortdef\":[]}]", "go");
+        Check(bare.Found && bare.Entries.Count == 1 && bare.Entries[0].Ipa == "" && bare.Entries[0].AudioUrl == "" && bare.Entries[0].Pos == ""
+              && bare.Entries[0].Headword == "go", "mw: no hwi/prs/fl -> empty fields");
+        bool threw = false;
+        try { MerriamWebsterParser.Parse("<html>", "x"); } catch (FormatException) { threw = true; }
+        Check(threw, "mw: html -> FormatException");
     }
 }
