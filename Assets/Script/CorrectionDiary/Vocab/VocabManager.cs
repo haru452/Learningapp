@@ -52,7 +52,7 @@ public class VocabManager : MonoBehaviour
     [SerializeField] private TMP_Text ratingHint;
     [SerializeField] private GameObject summaryScroll;
     [SerializeField] private Transform summaryContent;
-    [SerializeField] private GameObject summaryRowTemplate;  // 子: Text (TMP)、MyVoice (Button)、Model (Button)
+    [SerializeField] private GameObject summaryRowTemplate;  // 子: Text (TMP)、Buttons/MyVoice、Buttons/Model (名前は VocabTodayView の定数)
     [SerializeField] private Button rescoreButton;
     [SerializeField] private Button weakButton;
     [SerializeField] private Button levelUpButton;

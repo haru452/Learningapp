@@ -43,6 +43,13 @@ public class VocabTodayView
     private enum Mode { Idle, Loading, Card, Summary, Weak }
 
     public const int MaxLookupFailures = 10;
+    // まとめの 1 行の中の部品 (VocabScreenBuilder が作る名前と同じにする)
+    public const string RowTextName = "Text";
+    public const string RowButtonsName = "Buttons";
+    public const string MyVoiceName = "MyVoice";
+    public const string ModelName = "Model";
+    public const string MyVoicePath = RowButtonsName + "/" + MyVoiceName;
+    public const string ModelPath = RowButtonsName + "/" + ModelName;
     private static readonly string[] RatingNames = { "Didn't know", "Hard", "Knew it", "Easy" };
     private const string NoDictionaryNote = "Can't reach the dictionary, so today is review only.";
 
@@ -61,6 +68,7 @@ public class VocabTodayView
     private readonly Dictionary<string, TMP_Text> _rows = new Dictionary<string, TMP_Text>();
     private bool _flipped;
     private bool _finishing;
+    private bool _starting;
     private bool _scoring;
     private bool _geminiFailed;
     private string _note = "";
@@ -116,6 +124,8 @@ public class VocabTodayView
         VocabStore.DeleteAllRecordings();
         _mode = Mode.Idle;
         _session = null;
+        _scoring = false;
+        _starting = false;
     }
 
     private void ShowIdle()
@@ -166,14 +176,23 @@ public class VocabTodayView
 
         var now = DateTime.UtcNow;
         var (cards, newCount) = VocabQueue.Plan(_ctx.Deck.Cards, now, VocabSettings.SessionSize);
-        bool offline = false;
+        bool offline = false;                 // 1 回でも通信に失敗したら、そのあとは保存した結果だけ使う (待たせない)
+        string keyProblem = null;             // 辞書が JSON 以外を返した (キーの間違い)
         bool hasKey = _ctx.Dictionary != null && _ctx.Dictionary.IsConfigured;
+
+        async Task<DictionaryResult> Lookup(string word)
+        {
+            if (offline || keyProblem != null) return VocabStore.LoadDict(word);
+            try { return await _ctx.LookupAsync(word); }
+            catch (DictionaryKeyException e) { keyProblem = e.Message; }
+            catch (Exception e) { offline = true; Debug.LogWarning("[Vocab] lookup failed for " + word + ": " + e.Message); }
+            return VocabStore.LoadDict(word);
+        }
 
         // 前からある単語の辞書 (保存してあれば通信しない)
         foreach (var c in cards)
         {
-            try { _dicts[c.Word] = await _ctx.LookupAsync(c.Word); }
-            catch (Exception e) { offline = true; Debug.LogWarning("[Vocab] lookup failed for " + c.Word + ": " + e.Message); }
+            _dicts[c.Word] = await Lookup(c.Word);
             if (token != _token) return;
         }
 
@@ -188,9 +207,8 @@ public class VocabTodayView
             foreach (string w in candidates)
             {
                 if (added >= newCount || fails >= MaxLookupFailures) break;
-                DictionaryResult r = null;
-                try { r = await _ctx.LookupAsync(w); }
-                catch (Exception e) { offline = true; Debug.LogWarning("[Vocab] lookup failed for " + w + ": " + e.Message); }
+                if (offline || keyProblem != null) break;
+                DictionaryResult r = await Lookup(w);
                 if (token != _token) return;
                 if (r == null || !r.Found) { fails++; continue; }
                 fails = 0;
@@ -203,7 +221,7 @@ public class VocabTodayView
         _ctx.SetLoading(false);
 
         _note = newCount > 0 && added == 0
-            ? (!hasKey ? VocabContext.NoDictionaryKey : offline ? NoDictionaryNote : noneLeft ? "You have all " + VocabSettings.Level + " words. Try the next level in Settings." : "")
+            ? (!hasKey ? VocabContext.NoDictionaryKey : keyProblem ?? (offline ? NoDictionaryNote : _ctx.Cefr.Count == 0 ? "The word list (CefrjWords.json) is missing." : noneLeft ? "You have all " + VocabSettings.Level + " words. Try the next level in Settings." : ""))
             : "";
         if (cards.Count == 0)
         {
@@ -221,6 +239,7 @@ public class VocabTodayView
         _session = null;
         _dicts.Clear(); _pron.Clear(); _heard.Clear(); _recs.Clear(); _gemini.Clear(); _rows.Clear();
         _geminiFailed = false;
+        _scoring = false;
         _note = "";
         _weak = new List<VocabCard>();
         VocabContext.ClearChildren(_v.SummaryContent, _v.SummaryRowTemplate);
@@ -326,6 +345,7 @@ public class VocabTodayView
     private void OnSayClicked()
     {
         if (CurrentCard == null || _finishing) return;
+        if (_starting) return;
         if (_ctx.Capture.IsActive) { _ = FinishSayAsync(); return; }
         _ = StartSayAsync();
     }
@@ -333,9 +353,15 @@ public class VocabTodayView
     private async Task StartSayAsync()
     {
         _ctx.Audio.Stop();
+        int token = _token;
+        var card = CurrentCard;
+        _starting = true;
         bool ok;
         try { ok = await _ctx.Capture.StartAsync(); }
         catch (Exception e) { Debug.LogWarning("[Vocab] could not start listening: " + e.Message); ok = false; }
+        finally { _starting = false; }
+        // 権限を待つ間に評価した・タブを移った: 始めた聞き取りは捨てる (別のカードの結果にしない)
+        if (ok && (token != _token || card != CurrentCard)) { _ctx.Capture.Cancel(); return; }
         if (!ok) { _ctx.SetStatus("Could not use the microphone."); return; }
         if (_v.SayLabel != null) _v.SayLabel.text = "Stop";
         _ctx.SetStatus("Listening... say the word.");
@@ -427,19 +453,19 @@ public class VocabTodayView
         foreach (var c in _session.Cards)
         {
             var row = VocabContext.CloneRow(_v.SummaryRowTemplate, _v.SummaryContent);
-            var textT = row.transform.Find("Text");
+            var textT = row.transform.Find(RowTextName);
             TMP_Text text = textT != null ? textT.GetComponent<TMP_Text>() : null;
             if (text == null) text = row.GetComponentInChildren<TMP_Text>(true);
             _rows[c.Word] = text;
             var card = c;
-            var myVoiceT = row.transform.Find("MyVoice");
+            var myVoiceT = row.transform.Find(MyVoicePath);
             var myVoice = myVoiceT != null ? myVoiceT.GetComponent<Button>() : null;
             if (myVoice != null)
             {
                 myVoice.gameObject.SetActive(_recs.ContainsKey(c.Word));
                 myVoice.onClick.AddListener(() => { if (_recs.TryGetValue(card.Word, out byte[] w)) _ = PlaySafeAsync(() => _ctx.Audio.PlayWavAsync(w, CancellationToken.None)); });
             }
-            var modelT = row.transform.Find("Model");
+            var modelT = row.transform.Find(ModelPath);
             var model = modelT != null ? modelT.GetComponent<Button>() : null;
             if (model != null) model.onClick.AddListener(() => PlayModel(card));
             UpdateRow(c);
@@ -503,9 +529,9 @@ public class VocabTodayView
         }
         finally
         {
+            _scoring = false;   // 回が変わっていても必ず戻す (戻さないと次の回の採点が始まらない)
             if (token == _token)
             {
-                _scoring = false;
                 if (_mode == Mode.Summary)
                 {
                     foreach (var c in _session.Cards) UpdateRow(c);

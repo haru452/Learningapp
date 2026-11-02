@@ -16,6 +16,7 @@ public static partial class LogicTests
         VocabJsonTests();
         CefrBundledTests();
         VocabGeminiTests();
+        VocabDictionaryProblemTests();
     }
 
     private static bool Near(double a, double b, double eps = 1e-9) => Math.Abs(a - b) <= eps;
@@ -351,5 +352,20 @@ public static partial class LogicTests
             Check(res[1].Sounds.SequenceEqual(new[] { "th" }), "vocab gemini: unknown sound dropped");
         }
         Check(GeminiApiClient.ParseWordPronunciations("not json", new[] { "a" }).Count == 0, "vocab gemini: broken -> empty");
+    }
+
+    // ---------------- 辞書の返事が JSON でない (キーの間違いなど) ----------------
+    private static void VocabDictionaryProblemTests()
+    {
+        Check(MerriamWebsterParser.ProblemMessage("[]") == null && MerriamWebsterParser.ProblemMessage(MwApple) == null,
+            "mw problem: JSON array -> no problem");
+        string bad = MerriamWebsterParser.ProblemMessage("Invalid API key. Not subscribed for this reference.");
+        Check(bad != null && bad.Contains("merriamWebsterApiKey"), "mw problem: plain text -> check the key (" + bad + ")");
+        Check(MerriamWebsterParser.ProblemMessage("<html><body>error</body></html>") != null, "mw problem: html -> message");
+        bool threw = false;
+        try { MerriamWebsterParser.ParseOrThrow("Invalid API key.", "x"); }
+        catch (DictionaryKeyException e) { threw = e.Message.Contains("merriamWebsterApiKey"); }
+        Check(threw, "mw problem: ParseOrThrow -> DictionaryKeyException");
+        Check(MerriamWebsterParser.ParseOrThrow(MwApple, "apple").Found, "mw problem: ParseOrThrow parses good JSON");
     }
 }

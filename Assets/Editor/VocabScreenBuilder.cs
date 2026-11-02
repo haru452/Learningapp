@@ -219,12 +219,12 @@ public static class VocabScreenBuilder
         m["summaryScroll"] = summaryImage.gameObject;
         m["summaryContent"] = summaryContent;
         var rowTemplate = CreateBox("SummaryRowTemplate", summaryContent, vertical: true, spacing: 6);
-        var rowText = CreateText("Text", rowTemplate.transform, "", 30, TextAlignmentOptions.TopLeft);
+        var rowText = CreateText(VocabTodayView.RowTextName, rowTemplate.transform, "", 30, TextAlignmentOptions.TopLeft);
         rowText.raycastTarget = false;
-        var rowButtons = CreateBox("Buttons", rowTemplate.transform, vertical: false, spacing: 12);
+        var rowButtons = CreateBox(VocabTodayView.RowButtonsName, rowTemplate.transform, vertical: false, spacing: 12);
         Layout(rowButtons, preferredHeight: 70);
-        CreateButton("MyVoice", rowButtons.transform, "My voice");
-        CreateButton("Model", rowButtons.transform, "Model");
+        CreateButton(VocabTodayView.MyVoiceName, rowButtons.transform, "My voice");
+        CreateButton(VocabTodayView.ModelName, rowButtons.transform, "Model");
         rowTemplate.SetActive(false);
         m["summaryRowTemplate"] = rowTemplate;
 

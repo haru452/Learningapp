@@ -28,3 +28,9 @@ public interface IDictionaryProvider
     /// <summary>単語を引く。通信できないときは例外</summary>
     Task<DictionaryResult> LookupAsync(string word);
 }
+
+/// <summary>辞書が JSON 以外を返した (多くはキーの間違い)。通信できないのとは別に扱う</summary>
+public class DictionaryKeyException : System.Exception
+{
+    public DictionaryKeyException(string message) : base(message) { }
+}

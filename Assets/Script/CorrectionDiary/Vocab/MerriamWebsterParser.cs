@@ -33,6 +33,23 @@ public static class MerriamWebsterParser
         return result;
     }
 
+    public const string KeyProblem = "The dictionary did not accept the request. Check merriamWebsterApiKey in ApiSecrets.json.";
+
+    /// <summary>返事が JSON の配列でない (キーの間違い・HTML のエラーページなど) ときの画面の文。問題なければ null</summary>
+    public static string ProblemMessage(string body)
+    {
+        try { return MiniJson.Parse(body ?? "") is List<object> ? null : KeyProblem; }
+        catch (FormatException) { return KeyProblem; }
+    }
+
+    /// <summary>Parse と同じ。ただし JSON でない返事は DictionaryKeyException (通信の失敗と分けるため)</summary>
+    public static DictionaryResult ParseOrThrow(string body, string word)
+    {
+        string problem = ProblemMessage(body);
+        if (problem != null) throw new DictionaryKeyException(problem);
+        return Parse(body, word);
+    }
+
     /// <summary>音声ファイル名 → URL。フォルダ: bix / gg / number (数字・記号で始まる) / 先頭の 1 文字</summary>
     public static string AudioUrl(string audio)
     {

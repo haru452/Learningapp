@@ -77,6 +77,11 @@ public class VocabAddView
                 ShowNotFound(word, r);
             }
         }
+        catch (DictionaryKeyException e)
+        {
+            ShowResult("", null);
+            _ctx.SetStatus(e.Message);
+        }
         catch (Exception e)
         {
             Debug.LogWarning("[Vocab] search failed: " + e.Message);
@@ -166,6 +171,7 @@ public class VocabAddView
         _ctx.SetLoading(true);
         DictionaryResult dict = null;
         try { dict = await _ctx.LookupAsync(word); }   // 引けたら情報も付ける (引けなくても追加する)
+        catch (DictionaryKeyException e) { _ctx.SetStatus(e.Message); }
         catch (Exception e) { Debug.LogWarning("[Vocab] lookup for a manual word failed: " + e.Message); }
         finally { _busy = false; _ctx.SetLoading(false); }
 

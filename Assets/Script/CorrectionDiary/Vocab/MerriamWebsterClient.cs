@@ -29,7 +29,7 @@ public class MerriamWebsterClient : IDictionaryProvider
             try
             {
                 string body = await HttpUtil.GetAsync(url, 20);
-                return MerriamWebsterParser.Parse(body, w);
+                return MerriamWebsterParser.ParseOrThrow(body, w);
             }
             catch (HttpException e) when ((e.StatusCode == 429 || e.StatusCode >= 500) && attempt < Retries)
             {
