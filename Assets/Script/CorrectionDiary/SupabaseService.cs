@@ -304,6 +304,13 @@ public class SupabaseService : MonoBehaviour
         return (info, r.already_done);
     }
 
+    /// <summary>単語帳を 1 回終えた日を連続記録・カレンダーに数える (vocab.sql)。同じ日に何回呼んでも 1 回分</summary>
+    public async Task CompleteVocabSessionAsync(DateTime takenAtUtc)
+    {
+        await RpcAsync("complete_vocab_session",
+            ",\"p_taken_at\":\"" + takenAtUtc.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture) + "\"");
+    }
+
     /// <summary>
     /// 端末内の連続日数をクラウドに引き継ぐ (ログイン後に1回)。
     /// サーバー側で検証され、サーバーの値より大きいときだけ反映される。
