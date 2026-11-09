@@ -139,6 +139,51 @@ public class YouTubeSearchClient
         return PickTitleResults(ordered, minSeconds, maxSeconds, limit);
     }
 
+    /// <summary>
+    /// 単語帳用: 単語を "..." で囲んで検索し、動画を検索の順のまま返す (見つからなければ空)。
+    /// 字幕付き・埋め込み可・英語・セーフサーチ。タイトルとチャンネル名は videos.list (1回) で補う。長さは使わない (0)。
+    /// HttpException はそのまま投げる (上限かどうかは IsQuotaExceeded で見分ける)。
+    /// </summary>
+    public async Task<List<Video>> SearchWordVideosAsync(string word)
+    {
+        if (!IsConfigured)
+            throw new InvalidOperationException("YouTube API key is not set.");
+
+        string searchUrl = SearchUrl +
+            "?part=id&type=video&maxResults=10&videoCaption=closedCaption&videoEmbeddable=true" +
+            "&relevanceLanguage=en&safeSearch=strict" +
+            "&q=" + Uri.EscapeDataString("\"" + (word ?? "") + "\"") +
+            "&key=" + Uri.EscapeDataString(_apiKey);
+        var search = JsonUtility.FromJson<SearchResponse>(await HttpUtil.GetAsync(searchUrl));
+        var ids = new List<string>();
+        if (search?.items != null)
+            foreach (var item in search.items)
+                if (!string.IsNullOrEmpty(item?.id?.videoId)) ids.Add(item.id.videoId);
+        var result = new List<Video>();
+        if (ids.Count == 0) return result;
+
+        string videosUrl = VideosUrl + "?part=snippet&id=" + string.Join(",", ids) +
+                           "&key=" + Uri.EscapeDataString(_apiKey);
+        var details = JsonUtility.FromJson<VideosResponse>(await HttpUtil.GetAsync(videosUrl));
+        var byId = new Dictionary<string, VideoItem>();
+        if (details?.items != null)
+            foreach (var item in details.items) byId[item.id] = item;
+        foreach (string id in ids)   // 検索の順のまま
+        {
+            byId.TryGetValue(id, out VideoItem it);
+            result.Add(new Video { id = id, title = it?.snippet?.title ?? "", channel = it?.snippet?.channelTitle ?? "" });
+        }
+        return result;
+    }
+
+    /// <summary>1日の利用枠を使い切った (403 で quotaExceeded / dailyLimitExceeded) かどうか</summary>
+    public static bool IsQuotaExceeded(HttpException e)
+    {
+        if (e == null || e.StatusCode != 403) return false;
+        string m = e.Message ?? "";
+        return m.Contains("quotaExceeded") || m.Contains("dailyLimitExceeded");
+    }
+
     /// <summary>長さで絞り、順番はそのまま、最大 limit 件</summary>
     public static List<Video> PickTitleResults(IList<Video> videos, int minSeconds, int maxSeconds, int limit)
     {

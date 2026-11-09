@@ -30,6 +30,7 @@ public class ApiSecrets
     public string supabaseAnonKey;
     public string youtubeApiKey;
     public string youtubeShadowApiKey;   // シャドーイングの動画検索 (空なら youtubeApiKey)
+    public string youtubeVocabApiKey;    // 単語帳の動画の場面の検索 (空なら youtubeApiKey)
     public string summaryDiscordWebhookUrl;   // 要約練習の結果を送る Webhook (日記とは別のチャンネル)
     public string summaryDiscordChannelId;    // Webhook の代わりに Bot で送る場合のチャンネルID
     public string pronunciationDiscordWebhookUrl;   // お題スピーキングの発音チェックのアドバイスを送る Webhook (別のチャンネル)

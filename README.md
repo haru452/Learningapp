@@ -158,6 +158,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "supabaseAnonKey": "",
   "youtubeApiKey": "",
   "youtubeShadowApiKey": "",
+  "youtubeVocabApiKey": "",
   "summaryDiscordWebhookUrl": "",
   "summaryDiscordChannelId": "",
   "pronunciationDiscordWebhookUrl": "",
@@ -176,6 +177,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 | merriamWebsterApiKey | [dictionaryapi.com](https://dictionaryapi.com/)（Merriam-Webster's **Learner's Dictionary** の Key (Dictionary)） | 単語帳を使う場合 |
 | youtubeApiKey | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)（YouTube Data API v3 を有効化） | 要約練習を使う場合 |
 | youtubeShadowApiKey | 同上（シャドーイングの動画検索用。別のプロジェクトで作ると上限が分かれる） | 任意。空なら youtubeApiKey |
+| youtubeVocabApiKey | 同上（単語帳の動画の場面の検索用） | 任意。空なら youtubeApiKey |
 | supabaseUrl / supabaseAnonKey | [Supabase](https://supabase.com/) | ログイン・日記保存を使う場合 |
 | discordWebhookUrl | Discord のサーバー設定 | 任意 |
 | summaryDiscordWebhookUrl | Discord のサーバー設定（要約練習の結果を送るチャンネルの Webhook。日記とは別） | 任意。空なら要約の結果は送らない |

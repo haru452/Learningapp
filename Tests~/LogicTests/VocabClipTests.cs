@@ -28,6 +28,7 @@ public static partial class LogicTests
         VocabClipFixtureTests();
         VocabClipMergeTests();
         YouTubeTranscriptTests();
+        YouTubeQuotaTests();
     }
 
     private static void VocabClipFixtureTests()
@@ -104,5 +105,15 @@ public static partial class LogicTests
         Check(adj.Count == 3 && adj[1].Text == "b" && adj[2].Start == 3, "yt timedtext: adjacent elements, got " + adj.Count);
         var nested = YouTubeTranscriptClient.ParseTimedText("<transcript><text start=\"1\" dur=\"1\"><font color=\"#fff\">hi</font> there</text><text start=\"2\" dur=\"1\">next</text></transcript>");
         Check(nested.Count == 2 && nested[0].Text == "hi there" && nested[1].Text == "next", "yt timedtext: child element");
+    }
+
+    private static void YouTubeQuotaTests()
+    {
+        string body = "{\"error\":{\"errors\":[{\"reason\":\"quotaExceeded\"}]}}";
+        Check(YouTubeSearchClient.IsQuotaExceeded(new HttpException(403, "HTTP 403 : Forbidden\n" + body)), "quota: 403 quotaExceeded");
+        Check(YouTubeSearchClient.IsQuotaExceeded(new HttpException(403, "HTTP 403 : x\n\"reason\": \"dailyLimitExceeded\"")), "quota: 403 dailyLimitExceeded");
+        Check(!YouTubeSearchClient.IsQuotaExceeded(new HttpException(403, "HTTP 403 : x\n\"reason\": \"forbidden\"")), "quota: 403 forbidden is not quota");
+        Check(!YouTubeSearchClient.IsQuotaExceeded(new HttpException(400, "HTTP 400 : x\nquotaExceeded")), "quota: 400 is not quota");
+        Check(!YouTubeSearchClient.IsQuotaExceeded(null), "quota: null");
     }
 }
