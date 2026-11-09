@@ -43,6 +43,7 @@ public static partial class LogicTests
         SoundTests();
         RepeatDiscordTests();
         VocabTests();
+        VocabClipTests();
 
         if (_failed > 0)
         {
