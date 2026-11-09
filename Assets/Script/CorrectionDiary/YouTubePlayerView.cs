@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using UnityEngine;
 #if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
 using Gree.UnityWebView;
@@ -49,16 +50,87 @@ public class YouTubePlayerView : MonoBehaviour
     /// <summary>動画を表示する範囲を変える (実行時に作った画面から使う)</summary>
     public void SetVideoArea(RectTransform area) => videoArea = area;
 
+    // 今流している範囲 (Replay 用)。範囲指定の Show をまだ呼んでいなければ _clipId は null
+    private string _clipId;
+    private double _clipStart;
+    private double _clipEnd;
+
+    /// <summary>
+    /// 範囲再生用に playerVars へ足す項目を作る。例: 12.4, 15.2 → "start:12,end:16"。
+    /// start は切り捨て (負なら 0)、end は切り上げ。end が start 以下なら start のみ。
+    /// </summary>
+    public static string BuildPlayerVars(double start, double end)
+    {
+        long s = (long)Math.Floor(Math.Max(0, start));
+        string vars = "start:" + s.ToString(CultureInfo.InvariantCulture);
+        long e = (long)Math.Ceiling(end);
+        if (end > start && e > s) vars += ",end:" + e.ToString(CultureInfo.InvariantCulture);
+        return vars;
+    }
+
+    // YouTube の動画 ID は [A-Za-z0-9_-] だけ。JS / HTML に埋め込むので他は弾く
+    private static bool IsValidVideoId(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return false;
+        foreach (char c in id)
+        {
+            bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static void OpenClipInBrowser(string id, double start)
+    {
+        long s = (long)Math.Floor(Math.Max(0, start));
+        Application.OpenURL("https://www.youtube.com/watch?v=" + id + "&t=" + s.ToString(CultureInfo.InvariantCulture) + "s");
+    }
+
+    /// <summary>
+    /// 動画の startSeconds ～ endSeconds だけを流す (終わりで OnEnded)。実機のみアプリ内で自動再生、
+    /// Editor などではその秒数からブラウザで開く。
+    /// </summary>
+    public void Show(string videoId, double startSeconds, double endSeconds)
+    {
+        if (!IsValidVideoId(videoId))
+        {
+            Debug.LogWarning("[YouTubePlayerView] 動画 ID が不正です: " + videoId);
+            return;
+        }
+        _clipId = videoId;
+        _clipStart = startSeconds;
+        _clipEnd = endSeconds;
+#if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
+        EnsureWebView();
+        UpdateMargins();
+        _webView.LoadHTML(BuildHtml(videoId, "autoplay: 1, " + BuildPlayerVars(startSeconds, endSeconds) + ", "), embedBaseUrl);
+        _webView.SetVisibility(true);
+#else
+        OpenClipInBrowser(videoId, startSeconds);
+#endif
+    }
+
+    /// <summary>Show(id, start, end) で流した範囲をもう一度流す。まだ何も流していなければ何もしない</summary>
+    public void Replay()
+    {
+        if (_clipId == null) return;
+#if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
+        if (_webView == null) return;
+        // end で止まった後は seekTo より loadVideoById のほうが確実に再生し直せる
+        string js = "if (player && player.loadVideoById) player.loadVideoById({videoId:'" + _clipId
+            + "', startSeconds:" + Math.Floor(Math.Max(0, _clipStart)).ToString(CultureInfo.InvariantCulture)
+            + (_clipEnd > _clipStart ? ", endSeconds:" + Math.Ceiling(_clipEnd).ToString(CultureInfo.InvariantCulture) : "")
+            + "});";
+        _webView.EvaluateJS(js);
+#else
+        OpenClipInBrowser(_clipId, _clipStart);
+#endif
+    }
+
     public void Show(string videoId)
     {
 #if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
-        if (_webView == null)
-        {
-            _webView = new GameObject("YouTubeWebView").AddComponent<WebViewObject>();
-            _webView.Init(
-                cb: OnJsMessage,
-                err: msg => Debug.LogWarning("[YouTubePlayerView] WebView error: " + msg));
-        }
+        EnsureWebView();
 
         UpdateMargins();
         _webView.LoadHTML(BuildHtml(videoId), embedBaseUrl);
@@ -89,6 +161,15 @@ public class YouTubePlayerView : MonoBehaviour
     }
 
 #if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
+    private void EnsureWebView()
+    {
+        if (_webView != null) return;
+        _webView = new GameObject("YouTubeWebView").AddComponent<WebViewObject>();
+        _webView.Init(
+            cb: OnJsMessage,
+            err: msg => Debug.LogWarning("[YouTubePlayerView] WebView error: " + msg));
+    }
+
     private void OnJsMessage(string msg)
     {
         if (msg == "ended") OnEnded?.Invoke();
@@ -132,7 +213,7 @@ public class YouTubePlayerView : MonoBehaviour
     }
 
     // YouTube IFrame Player API で再生し、終了を Unity に知らせる
-    private string BuildHtml(string videoId)
+    private string BuildHtml(string videoId, string extraVars = "")
     {
         string origin = embedBaseUrl.TrimEnd('/');
         return @"<!DOCTYPE html>
@@ -157,7 +238,7 @@ setInterval(function () {
 function onYouTubeIframeAPIReady() {
   player = new YT.Player('player', {
     width: '100%', height: '100%', videoId: '" + videoId + @"',
-    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, origin: '" + origin + @"' },
+    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, " + extraVars + @"origin: '" + origin + @"' },
     events: {
       onStateChange: function (e) {
         if (e.data === YT.PlayerState.ENDED) notify('ended');

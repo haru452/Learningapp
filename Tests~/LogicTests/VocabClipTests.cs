@@ -33,6 +33,7 @@ public static partial class LogicTests
         VocabClipSupabaseJsonTests();
         VocabClipSourceTests();
         VocabClipPrefetcherTests();
+        YouTubePlayerVarsTests();
     }
 
     private static void VocabClipFixtureTests()
@@ -178,5 +179,14 @@ public static partial class LogicTests
         Check(SupabaseService.ParseClips("").Count == 0 && SupabaseService.ParseClips("{\"a\":1}").Count == 0 && SupabaseService.ParseClips("[{bad").Count == 0 && SupabaseService.ParseClips(null).Count == 0, "parse clips: broken -> empty");
         var rt = SupabaseService.ParseClips(json);
         Check(rt.Count == 1 && rt[0].Sentence == clip.Sentence && rt[0].StartMs == 1500 && rt[0].Channel == "ch", "clips json round trip");
+    }
+
+    // YouTube プレーヤーに渡す start/end の部分 (切り捨て・切り上げ・end が無いとき)
+    private static void YouTubePlayerVarsTests()
+    {
+        Check(YouTubePlayerView.BuildPlayerVars(12.4, 15.2) == "start:12,end:16", "playerVars 範囲");
+        Check(YouTubePlayerView.BuildPlayerVars(12.4, 12.4) == "start:12", "end <= start は start のみ");
+        Check(YouTubePlayerView.BuildPlayerVars(12.4, 5) == "start:12", "end < start は start のみ");
+        Check(YouTubePlayerView.BuildPlayerVars(-2, 2.1) == "start:0,end:3", "負の start は 0");
     }
 }
