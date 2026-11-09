@@ -100,5 +100,9 @@ public static partial class LogicTests
         }
         Check(YouTubeTranscriptClient.ParseTimedText("<transcript/>").Count == 0, "yt timedtext: empty");
         Check(YouTubeTranscriptClient.ParseTimedText("<<broken").Count == 0, "yt timedtext: invalid xml");
+        var adj = YouTubeTranscriptClient.ParseTimedText("<transcript><text start=\"1\" dur=\"1\">a</text><text start=\"2\" dur=\"1\">b</text><text start=\"3\" dur=\"1\">c</text></transcript>");
+        Check(adj.Count == 3 && adj[1].Text == "b" && adj[2].Start == 3, "yt timedtext: adjacent elements, got " + adj.Count);
+        var nested = YouTubeTranscriptClient.ParseTimedText("<transcript><text start=\"1\" dur=\"1\"><font color=\"#fff\">hi</font> there</text><text start=\"2\" dur=\"1\">next</text></transcript>");
+        Check(nested.Count == 2 && nested[0].Text == "hi there" && nested[1].Text == "next", "yt timedtext: child element");
     }
 }

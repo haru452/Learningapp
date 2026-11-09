@@ -6,6 +6,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
+using System.Xml.Linq;
 
 /// <summary>
 /// YouTube 動画の英語字幕をスマホから取る (非公式。Python の youtube-transcript-api 1.x と同じ手順)。
@@ -94,18 +95,20 @@ public class YouTubeTranscriptClient
         try
         {
             var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
+            XDocument doc;
             using (var reader = XmlReader.Create(new StringReader(xml), settings))
+                doc = XDocument.Load(reader);
+            // 子要素 (<font> など) があっても全体のテキストを使う
+            foreach (var e in doc.Descendants("text"))
             {
-                while (reader.Read())
+                string text = Clean(e.Value);
+                if (text.Length == 0) continue;
+                result.Add(new TranscriptLine
                 {
-                    if (reader.NodeType != XmlNodeType.Element || reader.Name != "text") continue;
-                    double start = ParseSeconds(reader.GetAttribute("start"));
-                    double dur = ParseSeconds(reader.GetAttribute("dur"));
-                    string raw = reader.ReadElementContentAsString();
-                    string text = Clean(raw);
-                    if (text.Length == 0) continue;
-                    result.Add(new TranscriptLine { Start = start, Duration = dur, Text = text });
-                }
+                    Start = ParseSeconds((string)e.Attribute("start")),
+                    Duration = ParseSeconds((string)e.Attribute("dur")),
+                    Text = text
+                });
             }
         }
         catch (Exception)
