@@ -188,5 +188,7 @@ public static partial class LogicTests
         Check(YouTubePlayerView.BuildPlayerVars(12.4, 12.4) == "start:12", "end <= start は start のみ");
         Check(YouTubePlayerView.BuildPlayerVars(12.4, 5) == "start:12", "end < start は start のみ");
         Check(YouTubePlayerView.BuildPlayerVars(-2, 2.1) == "start:0,end:3", "負の start は 0");
+        Check(YouTubePlayerView.BuildPlayerVars(double.NaN, 5) == "start:0,end:5", "NaN の start は 0");
+        Check(YouTubePlayerView.BuildPlayerVars(3, double.PositiveInfinity) == "start:3", "Infinity の end は付けない");
     }
 }

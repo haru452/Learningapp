@@ -54,6 +54,7 @@ public class YouTubePlayerView : MonoBehaviour
     private string _clipId;
     private double _clipStart;
     private double _clipEnd;
+    private bool _hidden;   // Hide 後は WebView が空のページ
 
     /// <summary>
     /// 範囲再生用に playerVars へ足す項目を作る。例: 12.4, 15.2 → "start:12,end:16"。
@@ -61,11 +62,23 @@ public class YouTubePlayerView : MonoBehaviour
     /// </summary>
     public static string BuildPlayerVars(double start, double end)
     {
-        long s = (long)Math.Floor(Math.Max(0, start));
+        long s = StartSec(start);
         string vars = "start:" + s.ToString(CultureInfo.InvariantCulture);
-        long e = (long)Math.Ceiling(end);
-        if (end > start && e > s) vars += ",end:" + e.ToString(CultureInfo.InvariantCulture);
+        long e = EndSec(start, end);
+        if (e > s) vars += ",end:" + e.ToString(CultureInfo.InvariantCulture);
         return vars;
+    }
+
+    // 開始秒 (切り捨て)。負・NaN・Infinity は 0
+    private static long StartSec(double start) =>
+        double.IsNaN(start) || double.IsInfinity(start) || start < 0 ? 0 : (long)Math.Floor(start);
+
+    // 終了秒 (切り上げ)。NaN・Infinity は 0 扱い。start 以下なら 0 (= 付けない)
+    private static long EndSec(double start, double end)
+    {
+        if (double.IsNaN(end) || double.IsInfinity(end) || end <= start) return 0;
+        long e = (long)Math.Ceiling(end);
+        return e > StartSec(start) ? e : 0;
     }
 
     // YouTube の動画 ID は [A-Za-z0-9_-] だけ。JS / HTML に埋め込むので他は弾く
@@ -82,7 +95,7 @@ public class YouTubePlayerView : MonoBehaviour
 
     private static void OpenClipInBrowser(string id, double start)
     {
-        long s = (long)Math.Floor(Math.Max(0, start));
+        long s = StartSec(start);
         Application.OpenURL("https://www.youtube.com/watch?v=" + id + "&t=" + s.ToString(CultureInfo.InvariantCulture) + "s");
     }
 
@@ -105,6 +118,7 @@ public class YouTubePlayerView : MonoBehaviour
         UpdateMargins();
         _webView.LoadHTML(BuildHtml(videoId, "autoplay: 1, " + BuildPlayerVars(startSeconds, endSeconds) + ", "), embedBaseUrl);
         _webView.SetVisibility(true);
+        _hidden = false;
 #else
         OpenClipInBrowser(videoId, startSeconds);
 #endif
@@ -116,10 +130,20 @@ public class YouTubePlayerView : MonoBehaviour
         if (_clipId == null) return;
 #if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
         if (_webView == null) return;
+        UpdateMargins();
+        _webView.SetVisibility(true);
+        if (_hidden)
+        {
+            // Hide で空のページに替わっているので、プレーヤーごと読み込み直す
+            _hidden = false;
+            _webView.LoadHTML(BuildHtml(_clipId, "autoplay: 1, " + BuildPlayerVars(_clipStart, _clipEnd) + ", "), embedBaseUrl);
+            return;
+        }
         // end で止まった後は seekTo より loadVideoById のほうが確実に再生し直せる
+        long s = StartSec(_clipStart), e = EndSec(_clipStart, _clipEnd);
         string js = "if (player && player.loadVideoById) player.loadVideoById({videoId:'" + _clipId
-            + "', startSeconds:" + Math.Floor(Math.Max(0, _clipStart)).ToString(CultureInfo.InvariantCulture)
-            + (_clipEnd > _clipStart ? ", endSeconds:" + Math.Ceiling(_clipEnd).ToString(CultureInfo.InvariantCulture) : "")
+            + "', startSeconds:" + s.ToString(CultureInfo.InvariantCulture)
+            + (e > 0 ? ", endSeconds:" + e.ToString(CultureInfo.InvariantCulture) : "")
             + "});";
         _webView.EvaluateJS(js);
 #else
@@ -129,12 +153,14 @@ public class YouTubePlayerView : MonoBehaviour
 
     public void Show(string videoId)
     {
+        _clipId = null;   // 別の動画を流すので、Replay の対象を忘れる
 #if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
         EnsureWebView();
 
         UpdateMargins();
         _webView.LoadHTML(BuildHtml(videoId), embedBaseUrl);
         _webView.SetVisibility(true);
+        _hidden = false;
 #else
         Application.OpenURL("https://www.youtube.com/watch?v=" + videoId);
 #endif
@@ -147,6 +173,7 @@ public class YouTubePlayerView : MonoBehaviour
         // 音が鳴り続けないよう、空のページに切り替えてから隠す
         _webView.LoadHTML("<html><body style='background:#000'></body></html>", embedBaseUrl);
         _webView.SetVisibility(false);
+        _hidden = true;
 #endif
     }
 
