@@ -71,3 +71,9 @@ Assets/My assets/260913132852632.JPG.meta
 
 # CEFR-J の元の CSV (変換した Assets/Resources/CefrjWords.json だけ入れる)
 /Tools~/cefrj/*.csv
+
+# 動画の場面を作るスクリプトの鍵・記録・出力
+Tools~/clips/.env
+Tools~/clips/.done.json
+Tools~/clips/out/
+Tools~/clips/__pycache__/
