@@ -51,12 +51,14 @@ public static class VocabLayoutTuner
         Undo.SetCurrentGroupName(UndoName);
         int group = Undo.GetCurrentGroup();
         int removed = RemoveAddTab(screen.gameObject);
+        int videos = VocabScreenBuilder.EnsureVideos(screen);   // Videos ボタンと動画の画面 (あれば何もしない)
         int changed = Apply(screen.gameObject);
         Undo.CollapseUndoOperations(group);
         EditorSceneManager.MarkSceneDirty(screen.gameObject.scene);
 
         EditorUtility.DisplayDialog("Vocabulary",
             $"{changed} か所の大きさを変えました。" + (removed > 0 ? "\nAdd タブと Add 画面を消しました。" : "") +
+            (videos > 0 ? "\nVideos ボタンと動画の画面を足しました。" : "") +
             "\n確認したら Ctrl+S で保存してください (Ctrl+Z で元に戻せます)。", "OK");
     }
 

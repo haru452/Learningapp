@@ -18,7 +18,7 @@ using UnityEngine.UI;
 /// Ctrl+Z で元に戻せる。シーンの保存 (Ctrl+S) は自分で行う。
 /// (部品の作り方とタブの処理は RepeatScreenBuilder と同じ)
 /// </summary>
-public static class VocabScreenBuilder
+public static partial class VocabScreenBuilder
 {
     private const string ScreenName = "vocab screen";
     private const string ManagerName = "vocab manager";
@@ -154,6 +154,7 @@ public static class VocabScreenBuilder
         }
         so.ApplyModifiedPropertiesWithoutUndo();
 
+        EnsureVideos(screen.transform);   // Videos ボタンと動画の画面 (VocabScreenBuilder.Videos.cs)
         VocabLayoutTuner.Apply(screen);
         screen.SetActive(false);   // タブボタンで開く
         return screen;
