@@ -32,6 +32,7 @@ public static partial class LogicTests
         VocabClipSearchLogTests();
         VocabClipSupabaseJsonTests();
         VocabClipSourceTests();
+        VocabClipPrefetcherTests();
     }
 
     private static void VocabClipFixtureTests()

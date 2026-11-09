@@ -28,6 +28,7 @@ public static partial class LogicTests
         public List<VocabClip> Added;
         public int CloudCalls, SearchCalls, AddCalls;
         public List<string> TranscriptCalls = new List<string>();
+        public List<string> SearchedWords = new List<string>();
         public Exception SearchError;
         public Exception TranscriptError;
         public TaskCompletionSource<List<YouTubeSearchClient.Video>> SearchGate;
@@ -46,6 +47,7 @@ public static partial class LogicTests
             Func<string, Task<List<YouTubeSearchClient.Video>>> search = word =>
             {
                 SearchCalls++;
+                SearchedWords.Add(word);
                 if (SearchError != null) return Task.FromException<List<YouTubeSearchClient.Video>>(SearchError);
                 if (SearchGate != null) return SearchGate.Task;
                 return Task.FromResult(TenVideos());
