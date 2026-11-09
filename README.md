@@ -189,6 +189,14 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 > - キーは Inspector に入力しないでください。Inspector の値はシーンファイル（`.unity`）に保存され、コミットすると GitHub に公開されてしまいます。
 > - `ApiSecrets.json` はビルドしたアプリ（APK など）の中には含まれます。キー入りのビルドは公開しないでください。
 
+## 単語帳の動画の場面（Tools~/clips）
+
+単語帳の Videos ボタンで出す「場面の一覧」を、パソコンで作るスクリプトです（任意。無くても、その場で探して出せます）。
+
+- `Tools~/clips/.env` に `YOUTUBE_API_KEY` / `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` を入れる（`.env.example` をコピー）
+- `python build_clips.py --dry-run` で確認 → `python build_clips.py` で Supabase に入れる
+- くわしくは `Tools~/clips/README.md`、確認の手順は `docs/vocab-video-clips-check.md`
+
 ## 関連リポジトリ
 
 このアプリが使うサーバー側のコードは、別のリポジトリで管理しています。

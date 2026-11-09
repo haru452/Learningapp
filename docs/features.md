@@ -87,7 +87,7 @@
 - Say it: 録音と認識を同時にできない端末では、次から認識だけにする。Gemini の文字起こしは最大 10 秒
 - Sound: calmness のような派生語で元の語 (calm) の音声を流さない
 ### これから
-- YouGlish のような「単語が使われている動画の場面」。設計の途中 (`docs/vocabulary-next.md`)
+- 動画の場面 (YouGlish のように、単語が使われている動画の場面を字幕つきで見る): 実装済み、確認待ち (`docs/vocab-video-clips-check.md`)
 
 ## 8. Talk: 3D キャラクターとの英会話 (実験中)
 - VRM キャラクターと音声で会話。LLM は LLMUnity でスマホの中で動かす

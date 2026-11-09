@@ -20,10 +20,10 @@ GitHub の Learningapp では、merge 先は `main` ではなく `develop` (main
 - [ ] よければ Claude に「commit して push して」と頼む (フォントの `LiberationSans SDF - Fallback.asset` と `.claude/` は入れない)
 - [ ] 残りの確認は `docs/vocabulary-checklist.md` の 3〜5 (Words・Settings・まとめ・連続記録・機内モード・merge)
 
-## 2. YouGlish のような「動画の場面」 (設計済み・実装計画の前)
+## 2. YouGlish のような「動画の場面」 (実装済み・確認待ち)
 
+確認の手順は `docs/vocab-video-clips-check.md`。
 設計書: `docs/superpowers/specs/2026-11-09-vocab-video-clips-design.md` (2026-11-09 に設計 1〜4 を決めた。下は当時のメモ)。
-Claude に「動画の場面の実装計画を作って」と言えば続きから始められる。
 
 ### 決まったこと
 - 目的: 本物の発音を聞くことと、使われ方を知ることの両方。字幕の文つきで、何場面か切り替えられる
