@@ -29,6 +29,7 @@ public static partial class LogicTests
         VocabClipMergeTests();
         YouTubeTranscriptTests();
         YouTubeQuotaTests();
+        VocabClipSearchLogTests();
     }
 
     private static void VocabClipFixtureTests()
@@ -115,5 +116,37 @@ public static partial class LogicTests
         Check(!YouTubeSearchClient.IsQuotaExceeded(new HttpException(403, "HTTP 403 : x\n\"reason\": \"forbidden\"")), "quota: 403 forbidden is not quota");
         Check(!YouTubeSearchClient.IsQuotaExceeded(new HttpException(400, "HTTP 400 : x\nquotaExceeded")), "quota: 400 is not quota");
         Check(!YouTubeSearchClient.IsQuotaExceeded(null), "quota: null");
+    }
+
+    private static void VocabClipSearchLogTests()
+    {
+        var d1 = new DateTime(2026, 11, 9, 23, 59, 0);
+        var d2 = d1.AddMinutes(2);
+        var log = new VocabClipSearchLog();
+        Check(log.CanSearch(d1), "searchlog: new log can search");
+        for (int i = 0; i < 29; i++) log.Used(d1);
+        Check(log.CanSearch(d1), "searchlog: 29 used still ok");
+        log.Used(d1);
+        Check(log.Count == 30 && !log.CanSearch(d1), "searchlog: 30 used -> false");
+        Check(log.CanSearch(d2), "searchlog: next day true");
+        log.Used(d2);
+        Check(log.Count == 1 && log.Date == "2026-11-10", "searchlog: next day restarts count");
+
+        var b = new VocabClipSearchLog();
+        b.Block(d1);
+        Check(!b.CanSearch(d1) && b.CanSearch(d2), "searchlog: block today only");
+
+        var rt = VocabClipSearchLog.FromJson(log.ToJson());
+        Check(rt.Date == log.Date && rt.Count == 1 && rt.BlockedDate == "", "searchlog: roundtrip");
+        var rb = VocabClipSearchLog.FromJson(b.ToJson());
+        Check(rb.BlockedDate == "2026-11-09" && !rb.CanSearch(d1), "searchlog: roundtrip blocked");
+
+        foreach (var bad in new string[] { null, "", "{broken", "[1,2]", "42" })
+        {
+            var f = VocabClipSearchLog.FromJson(bad);
+            Check(f.Count == 0 && f.BlockedDate == "" && f.CanSearch(d1), "searchlog: bad json -> empty: " + bad);
+        }
+        var partial = VocabClipSearchLog.FromJson("{\"count\":5,\"x\":1}");
+        Check(partial.Count == 5 && partial.Date == "", "searchlog: unknown/missing fields");
     }
 }
