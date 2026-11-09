@@ -210,7 +210,10 @@ public partial class VocabTodayView
         bool noneLeft = false;
         if (newCount > 0 && hasKey)
         {
-            var candidates = VocabQueue.NewCandidates(_ctx.Cefr, VocabSettings.Level, _ctx.Deck.Cards.Select(c => c.Word), _rng);
+            var deckWords = _ctx.Deck.Cards.Select(c => c.Word).ToList();
+            var randomCandidates = VocabQueue.NewCandidates(_ctx.Cefr, VocabSettings.Level, deckWords, _rng);
+            var nextNew = VocabStore.LoadNextNew();   // 先に決めておいた単語 (動画の場面を先に探してある)
+            var candidates = VocabQueue.OrderCandidates(nextNew, randomCandidates, deckWords);
             noneLeft = candidates.Count == 0;
             int fails = 0;
             foreach (string w in candidates)
@@ -226,6 +229,9 @@ public partial class VocabTodayView
                 cards.Add(new VocabCard { Word = VocabDeck.Key(w), Source = "auto", Cefr = _ctx.LevelFor(w, r), CreatedAt = now });
                 added++;
             }
+            // 使った単語は先に決めた一覧から除く
+            if (nextNew.Count > 0)
+                VocabStore.SaveNextNew(VocabQueue.RemainingNextNew(nextNew, cards.Skip(cards.Count - added).Select(c => c.Word), randomCandidates));
         }
         _ctx.SetLoading(false);
 

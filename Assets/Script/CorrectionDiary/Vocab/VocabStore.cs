@@ -16,6 +16,7 @@ public static class VocabStore
     public static string AudioDir => Path.Combine(Root, "audio");
     private static string DeckPath => Path.Combine(Root, "deck.json");
     private static string ReviewsPath => Path.Combine(Root, "reviews.json");
+    private static string NextNewPath => Path.Combine(Root, "next_new.json");
     private static string DictDir => Path.Combine(Root, "dict");
     private static string RecDir => Path.Combine(Root, "rec");
 
@@ -68,6 +69,40 @@ public static class VocabStore
         var all = LoadReviews();
         all.Add(review);
         WriteAtomic(ReviewsPath, VocabJson.ReviewsToJson(all));
+    }
+
+    /// <summary>次に出す新しい単語 (next_new.json)。無い・壊れていれば空</summary>
+    public static List<string> LoadNextNew()
+    {
+        var words = new List<string>();
+        try
+        {
+            if (!File.Exists(NextNewPath)) return words;
+            if (MiniJson.Parse(File.ReadAllText(NextNewPath, Encoding.UTF8)) is List<object> arr)
+                foreach (object o in arr)
+                    if (o is string s && s.Trim().Length > 0) words.Add(s);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Vocab] could not load next_new.json: " + e.Message);
+            return new List<string>();
+        }
+        return words;
+    }
+
+    public static void SaveNextNew(List<string> words)
+    {
+        try
+        {
+            var sb = new StringBuilder("[");
+            for (int i = 0; i < (words?.Count ?? 0); i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append('"').Append(HttpUtil.JsonEscape(words[i])).Append('"');
+            }
+            WriteAtomic(NextNewPath, sb.Append(']').ToString());
+        }
+        catch (Exception e) { Debug.LogWarning("[Vocab] could not save next_new.json: " + e.Message); }
     }
 
     /// <summary>保存した辞書の結果 (無い・壊れていれば null)</summary>

@@ -36,4 +36,40 @@ public static class VocabQueue
         }
         return pool;
     }
+
+    /// <summary>
+    /// 先に決めておいた単語 (nextNew) を保存した順に先頭へ、そのあとランダムの候補。重なりなし。
+    /// randomCandidates は「今のレベルで単語帳に無い語」なので、そこに無い nextNew (レベルを変えた・もう単語帳にある) は落ちる
+    /// </summary>
+    public static List<string> OrderCandidates(List<string> nextNew, List<string> randomCandidates, IEnumerable<string> deckWords)
+    {
+        var random = randomCandidates ?? new List<string>();
+        var have = new HashSet<string>((deckWords ?? Enumerable.Empty<string>()).Select(VocabDeck.Key));
+        var inRandom = new HashSet<string>(random.Select(VocabDeck.Key));
+        var seen = new HashSet<string>(have);
+        var result = new List<string>();
+        foreach (string w in nextNew ?? new List<string>())
+        {
+            string k = VocabDeck.Key(w);
+            if (inRandom.Contains(k) && seen.Add(k)) result.Add(k);
+        }
+        foreach (string w in random)
+            if (seen.Add(VocabDeck.Key(w))) result.Add(w);
+        return result;
+    }
+
+    /// <summary>回のあとに next_new.json へ残す単語: 使った語と、もう候補でない語を除く (順番はそのまま)</summary>
+    public static List<string> RemainingNextNew(List<string> nextNew, IEnumerable<string> used, List<string> randomCandidates)
+    {
+        var usedKeys = new HashSet<string>((used ?? Enumerable.Empty<string>()).Select(VocabDeck.Key));
+        var inRandom = new HashSet<string>((randomCandidates ?? new List<string>()).Select(VocabDeck.Key));
+        var seen = new HashSet<string>();
+        var result = new List<string>();
+        foreach (string w in nextNew ?? new List<string>())
+        {
+            string k = VocabDeck.Key(w);
+            if (!usedKeys.Contains(k) && inRandom.Contains(k) && seen.Add(k)) result.Add(k);
+        }
+        return result;
+    }
 }

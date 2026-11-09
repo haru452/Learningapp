@@ -175,6 +175,22 @@ public static partial class LogicTests
         Check(cand.SequenceEqual(VocabQueue.NewCandidates(list, "A1", new[] { "book", "cat" }, new Random(4))), "queue: same seed, same order");
         Check(VocabQueue.NewCandidates(list, "A1", new[] { "apple", "book", "cat", "dog" }, new Random(1)).Count == 0, "queue: none left -> empty");
 
+        // 先に決めた新しい単語を先頭に出す
+        var rnd = new List<string> { "dog", "apple", "cat" };
+        var ord = VocabQueue.OrderCandidates(new List<string> { "cat", "dog" }, rnd, new[] { "book" });
+        Check(ord.SequenceEqual(new[] { "cat", "dog", "apple" }), "order: nextNew first, then the rest: " + string.Join(",", ord));
+        Check(VocabQueue.OrderCandidates(new List<string> { "cat", "dog" }, rnd, new[] { "cat" }).SequenceEqual(new[] { "dog", "apple" }),
+            "order: nextNew word in the deck is dropped");
+        Check(VocabQueue.OrderCandidates(new List<string> { "Cat", "cat", "dog" }, rnd, new string[0]).SequenceEqual(new[] { "cat", "dog", "apple" }),
+            "order: no duplicates, keys normalized");
+        Check(VocabQueue.OrderCandidates(new List<string>(), rnd, new string[0]).SequenceEqual(rnd), "order: empty nextNew -> same as random");
+        Check(VocabQueue.OrderCandidates(null, rnd, null).SequenceEqual(rnd), "order: null nextNew -> same as random");
+        Check(VocabQueue.OrderCandidates(new List<string> { "eagle", "dog" }, rnd, new string[0]).SequenceEqual(new[] { "dog", "apple", "cat" }),
+            "order: nextNew word from another level is dropped");
+        var rem = VocabQueue.RemainingNextNew(new List<string> { "cat", "dog", "eagle", "apple" }, new[] { "Cat" }, rnd);
+        Check(rem.SequenceEqual(new[] { "dog", "apple" }), "remaining: minus used and minus not-candidates: " + string.Join(",", rem));
+        Check(VocabQueue.RemainingNextNew(null, null, null).Count == 0, "remaining: null -> empty");
+
         // 1 回分: 評価してカードが変わる。同じ回では出し直さない
         var a = Learning("alpha", 10); var b = Learning("beta", 5);
         var session = new VocabSession(new List<VocabCard> { a, b }, 0.9);
