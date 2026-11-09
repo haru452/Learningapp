@@ -34,6 +34,7 @@ public static partial class LogicTests
         VocabClipSourceTests();
         VocabClipPrefetcherTests();
         YouTubePlayerVarsTests();
+        VocabVideosHighlightTests();
     }
 
     private static void VocabClipFixtureTests()
@@ -190,5 +191,21 @@ public static partial class LogicTests
         Check(YouTubePlayerView.BuildPlayerVars(-2, 2.1) == "start:0,end:3", "負の start は 0");
         Check(YouTubePlayerView.BuildPlayerVars(double.NaN, 5) == "start:0,end:5", "NaN の start は 0");
         Check(YouTubePlayerView.BuildPlayerVars(3, double.PositiveInfinity) == "start:3", "Infinity の end は付けない");
+    }
+
+    // 動画の画面の文で、単語を太字にする (VocabClipFinder.Tokens と同じ区切り・大文字小文字は無視)
+    private static void VocabVideosHighlightTests()
+    {
+        const string Zw = "​";   // VocabContext.Esc が < の後ろに入れる文字
+        Check(VocabVideosView.Highlight("I feel Calm.", "calm") == "I feel <b>Calm</b>.", "highlight: 大文字のまま太字");
+        Check(VocabVideosView.Highlight("I like calmness.", "calm") == "I like calmness.", "highlight: calmness は太字にしない");
+        Check(VocabVideosView.Highlight("calmness, calm", "calm") == "calmness, <b>calm</b>", "highlight: 単語として一致した所だけ");
+        Check(VocabVideosView.Highlight("Calm down. Stay calm!", "calm") == "<b>Calm</b> down. Stay <b>calm</b>!", "highlight: 何度でも");
+        Check(VocabVideosView.Highlight("I'll look after it. LOOK  AFTER me", "look after") == "I'll <b>look after</b> it. <b>LOOK  AFTER</b> me", "highlight: 2 語");
+        Check(VocabVideosView.Highlight("look at it after", "look after") == "look at it after", "highlight: 2 語が離れていたら太字にしない");
+        Check(VocabVideosView.Highlight("'calm' is a < b", "calm") == "'<b>calm</b>' is a <" + Zw + " b", "highlight: ' を外す・< はエスケープ");
+        Check(VocabVideosView.Highlight("<b>calm</b>", "calm") == "<" + Zw + "b><b>calm</b><" + Zw + "/b>", "highlight: 文の中のタグは効かない");
+        Check(VocabVideosView.Highlight(null, "calm") == "", "highlight: null の文");
+        Check(VocabVideosView.Highlight("a < calm", "") == "a <" + Zw + " calm", "highlight: 単語が空ならエスケープだけ");
     }
 }

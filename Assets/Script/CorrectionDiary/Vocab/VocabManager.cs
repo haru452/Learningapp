@@ -75,6 +75,18 @@ public class VocabManager : MonoBehaviour
     [SerializeField] private Button[] retentionButtons;       // 80 85 90 95
     [SerializeField] private TMP_Text creditText;
 
+    [Header("Videos (空欄なら動画の場面の機能は無し)")]
+    [SerializeField] private Button videosButton;             // カードの Sound / Say it の行
+    [SerializeField] private GameObject videosPanel;
+    [SerializeField] private RectTransform videoArea;         // 動画 (16:9) を出す範囲
+    [SerializeField] private TMP_Text videoSentence;
+    [SerializeField] private TMP_Text videoChannel;
+    [SerializeField] private TMP_Text videoCount;
+    [SerializeField] private Button videoReplay;
+    [SerializeField] private Button videoNext;
+    [SerializeField] private Button videoClose;
+    [SerializeField] private YouTubePlayerView videoPlayer;   // 空欄なら自動で追加
+
     [Header("Components (空欄なら自動で追加)")]
     [SerializeField] private VocabAudio audioPlayer;
     [SerializeField] private AudioRecorder recorder;
@@ -84,6 +96,10 @@ public class VocabManager : MonoBehaviour
     private VocabTodayView _today;
     private VocabWordsView _words;
     private VocabSettingsView _settings;
+    private IVocabClipStorage _clipStorage;
+    private VocabClipSource _clipSource;
+    private VocabClipPrefetcher _prefetcher;     // 動画の機能が無ければ null
+    private readonly System.Random _rng = new System.Random();
     private int _tab = -1;
     private readonly Dictionary<Button, Color> _normalColors = new Dictionary<Button, Color>();
 
@@ -124,10 +140,61 @@ public class VocabManager : MonoBehaviour
             ShowTabs = on => { if (todayTab != null && todayTab.transform.parent != null) todayTab.transform.parent.gameObject.SetActive(on); },
         };
         _ctx.Capture = new VocabPronCapture(recorder, nativeStt, _ctx.Gemini);
+        if (VideosEnabled) SetUpClips(secrets);
     }
+
+    // シーンを組み立て直す前 (Videos の部品が無い) は動画の機能を使わない
+    private bool VideosEnabled => videosButton != null && videosPanel != null;
+
+    // 動画の場面: 端末の保存 → Supabase の一覧 → YouTube の検索。次の 20 単語を裏で準備する
+    private void SetUpClips(ApiSecrets secrets)
+    {
+        _clipStorage = new VocabClipFileStorage();
+        string ytKey = ApiSecrets.Pick(secrets.youtubeVocabApiKey, secrets.youtubeApiKey);
+        Func<string, Task<List<YouTubeSearchClient.Video>>> search = null;
+        if (!string.IsNullOrWhiteSpace(ytKey)) search = new YouTubeSearchClient(ytKey).SearchWordVideosAsync;
+        var transcript = new YouTubeTranscriptClient();
+        _clipSource = new VocabClipSource(
+            async words => CloudReady ? await supabase.GetVocabClipsAsync(words) : new List<VocabClip>(),
+            async clips => { if (CloudReady) await supabase.AddVocabClipsAsync(clips); },   // ログインしていなければ保存しない
+            search,
+            transcript.GetEnglishAsync,
+            _clipStorage,
+            () => DateTime.UtcNow,
+            Debug.LogWarning);
+        _prefetcher = new VocabClipPrefetcher(
+            _clipSource,
+            _clipStorage,
+            () => _today != null ? _today.RemainingWords() : new List<string>(),
+            () => _ctx.Deck.Cards,
+            VocabStore.LoadNextNew,
+            VocabStore.SaveNextNew,
+            () => VocabSettings.Level.Length == 0
+                ? new List<string>()
+                : VocabQueue.NewCandidates(_ctx.Cefr, VocabSettings.Level, _ctx.Deck.Cards.Select(c => c.Word), _rng),
+            () => DateTime.UtcNow,
+            Debug.Log);
+        _ctx.KickPrefetch = () => _prefetcher?.Kick();
+    }
+
+    // 呼ぶたびに確かめる (途中でログイン・ログアウトしてもよい)
+    private bool CloudReady => supabase != null && supabase.IsConfigured && supabase.IsSignedIn;
 
     private void Start()
     {
+        VocabVideosView videos = null;
+        if (VideosEnabled)
+        {
+            if (videoPlayer == null) videoPlayer = GetComponent<YouTubePlayerView>();
+            if (videoPlayer == null) videoPlayer = gameObject.AddComponent<YouTubePlayerView>();
+            videos = new VocabVideosView(new VocabVideosView.View
+            {
+                Panel = videosPanel, VideoArea = videoArea, SentenceText = videoSentence, ChannelText = videoChannel,
+                CountText = videoCount, Replay = videoReplay, Next = videoNext, Close = videoClose,
+            }, _clipSource, _clipStorage, videoPlayer, () => DateTime.UtcNow);
+        }
+        else if (videosButton != null) videosButton.gameObject.SetActive(false);
+
         _today = new VocabTodayView(_ctx, new VocabTodayView.View
         {
             LevelPickRow = levelPickRow, LevelPickButtons = levelPickButtons, StartButton = startButton, StartLabel = startLabel,
@@ -135,7 +202,8 @@ public class VocabManager : MonoBehaviour
             SayButton = sayButton, SayLabel = sayLabel, RatingRow = ratingRow, RatingButtons = ratingButtons, RatingLabels = ratingLabels,
             RatingHint = ratingHint, SummaryScroll = summaryScroll, SummaryContent = summaryContent, SummaryRowTemplate = summaryRowTemplate,
             RescoreButton = rescoreButton, WeakButton = weakButton, LevelUpButton = levelUpButton, LevelUpLabel = levelUpLabel,
-        });
+            VideosButton = videosButton,
+        }, videos);
         _words = new VocabWordsView(_ctx, new VocabWordsView.View
         {
             LearningToggle = learningToggle, KnownToggle = knownToggle, FilterButtons = filterButtons, Content = wordsContent,
@@ -151,6 +219,7 @@ public class VocabManager : MonoBehaviour
         if (wordsTab != null) wordsTab.onClick.AddListener(() => ShowTab(1));
         if (settingsTab != null) settingsTab.onClick.AddListener(() => ShowTab(2));
         ShowTab(0);
+        _ctx.KickPrefetch?.Invoke();
     }
 
     private void OnDisable()
@@ -162,11 +231,13 @@ public class VocabManager : MonoBehaviour
     private void OnEnable()
     {
         if (_today != null && _tab == 0) _today.Show();   // 状況に合った案内文に戻す
+        if (_today != null) _ctx.KickPrefetch?.Invoke();  // 初回は Start で準備を始める
     }
 
     private void OnDestroy()
     {
         _ctx?.Capture?.Dispose();
+        _prefetcher?.Stop();
     }
 
     private void ShowTab(int tab)
@@ -213,6 +284,7 @@ public class VocabContext
     public Action<bool> SetLoading;
     public Action<Button, bool> Highlight;
     public Action<bool> ShowTabs;           // 上の 4 つの切り替えを出す・隠す
+    public Action KickPrefetch;             // 動画の場面の準備を始める (動画の機能が無ければ null)
 
     public const string NoDictionaryKey = "No dictionary key. Add merriamWebsterApiKey to ApiSecrets.json.";
 

@@ -39,6 +39,7 @@ public partial class VocabTodayView
         public Button WeakButton;
         public Button LevelUpButton;
         public TMP_Text LevelUpLabel;
+        public Button VideosButton;     // カードの Sound / Say it の行 (無ければ動画の機能は無し)
     }
 
     private enum Mode { Idle, Loading, Card, Summary, Weak }
@@ -77,11 +78,13 @@ public partial class VocabTodayView
     private List<VocabCard> _weak = new List<VocabCard>();
     private int _weakIndex;
     private VocabCard _weakCard;
+    private readonly VocabVideosView _videos;   // 動画の画面 (無ければ null)
 
-    public VocabTodayView(VocabContext ctx, View v)
+    public VocabTodayView(VocabContext ctx, View v, VocabVideosView videos = null)
     {
         _ctx = ctx;
         _v = v;
+        _videos = _v.VideosButton != null ? videos : null;
         for (int i = 0; i < (_v.LevelPickButtons?.Length ?? 0); i++)
         {
             string level = CefrWordList.Levels[i];
@@ -89,9 +92,15 @@ public partial class VocabTodayView
             _v.LevelPickButtons[i].onClick.AddListener(() => { VocabSettings.Level = level; ShowIdle(); });
         }
         if (_v.StartButton != null) _v.StartButton.onClick.AddListener(OnStartClicked);
-        if (_v.CardButton != null) _v.CardButton.onClick.AddListener(() => { _flipped = !_flipped; Render(); });
+        if (_v.CardButton != null) _v.CardButton.onClick.AddListener(() => { if (VideosOpen) return; _flipped = !_flipped; Render(); });
         if (_v.SoundButton != null) _v.SoundButton.onClick.AddListener(() => PlayModel(CurrentCard));
         if (_v.SayButton != null) _v.SayButton.onClick.AddListener(OnSayClicked);
+        if (_v.VideosButton != null)
+        {
+            VocabContext.SetLabel(_v.VideosButton, "Videos");
+            _v.VideosButton.onClick.AddListener(OpenVideos);
+            _v.VideosButton.gameObject.SetActive(_videos != null);
+        }
         for (int i = 0; i < (_v.RatingButtons?.Length ?? 0); i++)
         {
             int g = i + 1;
@@ -106,6 +115,14 @@ public partial class VocabTodayView
     }
 
     private VocabCard CurrentCard => _mode == Mode.Weak ? _weakCard : _session?.Current;
+    private bool VideosOpen => _videos != null && _videos.IsOpen;
+
+    /// <summary>今の回でまだ答えていない単語 (今のカードから最後まで)。回が無い・まとめなどでは空</summary>
+    public List<string> RemainingWords()
+    {
+        if (_mode != Mode.Card || _session == null || _session.Done) return new List<string>();
+        return _session.Cards.Skip(_session.Index).Select(c => c.Word).ToList();
+    }
 
     // ------------------------------------------------------------
     // 画面を開いた・離れた
@@ -114,6 +131,7 @@ public partial class VocabTodayView
     {
         if (_mode == Mode.Idle) ShowIdle();
         else if (_mode == Mode.Summary) _ctx.SetStatus(_scoring ? "Checking your pronunciation..." : "Tap \"Start\" for more words.");
+        else if (VideosOpen) _videos.ResumeWithoutPlaying();   // 同じ場面の文だけ (流し直さない)
         else if (_mode == Mode.Card || _mode == Mode.Weak) ShowStatusForCard();
     }
 
@@ -128,7 +146,30 @@ public partial class VocabTodayView
         _ctx.Audio.Stop();
         _starting = false;
         if (_v.SayLabel != null) _v.SayLabel.text = "Say it";
-        if (_mode == Mode.Card || _mode == Mode.Weak) ShowStatusForCard();
+        _videos?.Pause();
+        if ((_mode == Mode.Card || _mode == Mode.Weak) && !VideosOpen) ShowStatusForCard();
+    }
+
+    // カードの「Videos」: カードと評価の行を隠して動画の画面を出す。Close で戻る (めくった状態はそのまま)
+    private void OpenVideos()
+    {
+        var card = CurrentCard;
+        if (_videos == null || card == null || VideosOpen) return;
+        if (_mode != Mode.Card && _mode != Mode.Weak) return;
+        _sayToken++;
+        _ctx.Capture.Cancel();
+        _ctx.Audio.Stop();
+        if (_v.SayLabel != null) _v.SayLabel.text = "Say it";
+        SetActive(_v.CardArea, false);
+        SetActive(_v.RatingRow, false);
+        VocabContext.Show(_v.RatingHint, false);
+        _ctx.SetStatus("");
+        _videos.Open(card, () =>
+        {
+            SetActive(_v.CardArea, true);
+            Render();
+            ShowStatusForCard();
+        });
     }
 
     private void ShowStatusForCard()
@@ -247,6 +288,7 @@ public partial class VocabTodayView
         _session = new VocabSession(cards, VocabSettings.Retention / 100.0);
         SetMode(Mode.Card);
         ShowCard();
+        _ctx.KickPrefetch?.Invoke();   // 今の回の単語から動画の場面を準備する
     }
 
     private void ResetSessionData()
@@ -265,6 +307,7 @@ public partial class VocabTodayView
     // ------------------------------------------------------------
     private void ShowCard()
     {
+        _videos?.Dismiss();
         _flipped = false;
         if (_v.LevelPickRow != null) _v.LevelPickRow.SetActive(false);
         SetActive(_v.CardArea, true);
@@ -425,7 +468,7 @@ public partial class VocabTodayView
     // ------------------------------------------------------------
     private void Rate(int rating)
     {
-        if (_mode != Mode.Card || _session == null || _session.Done || !_flipped) return;
+        if (_mode != Mode.Card || _session == null || _session.Done || !_flipped || VideosOpen) return;
         _ctx.Capture.Cancel();
         _ctx.Audio.Stop();
         var card = _session.Current;
@@ -437,6 +480,7 @@ public partial class VocabTodayView
 
         if (_session.Done) ShowSummary(first: true);
         else ShowCard();
+        _ctx.KickPrefetch?.Invoke();
     }
 
     // ------------------------------------------------------------
@@ -453,6 +497,7 @@ public partial class VocabTodayView
     // 学習中 (読み込み・カード・苦手の練習) は上の Today / Words / Add / Settings を隠して、カードを広くする
     private void SetMode(Mode mode)
     {
+        if (mode != Mode.Card && mode != Mode.Weak) _videos?.Dismiss();   // 回を離れたら動画の画面も閉じる
         _mode = mode;
         _ctx.ShowTabs?.Invoke(mode == Mode.Idle || mode == Mode.Summary);
     }
