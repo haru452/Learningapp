@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
@@ -13,7 +14,7 @@ using UnityEngine.UI;
 /// </summary>
 public class VocabManager : MonoBehaviour
 {
-    public static readonly Color SelectedColor = new Color(0.20f, 0.42f, 0.75f, 1f);
+    public static readonly Color SelectedColor = new Color(0.31f, 0.27f, 0.90f, 1f);
 
     [Header("API Keys (空なら ApiSecrets.json の値)")]
     [SerializeField] private string geminiModel = "gemini-3.8-flash";
@@ -25,11 +26,9 @@ public class VocabManager : MonoBehaviour
     [Header("Tabs")]
     [SerializeField] private Button todayTab;
     [SerializeField] private Button wordsTab;
-    [SerializeField] private Button addTab;
     [SerializeField] private Button settingsTab;
     [SerializeField] private GameObject todayPanel;
     [SerializeField] private GameObject wordsPanel;
-    [SerializeField] private GameObject addPanel;
     [SerializeField] private GameObject settingsPanel;
     [SerializeField] private TMP_Text statusText;
     [SerializeField] private GameObject loadingIndicator;
@@ -40,6 +39,7 @@ public class VocabManager : MonoBehaviour
     [SerializeField] private Button startButton;
     [SerializeField] private TMP_Text startLabel;
     [SerializeField] private TMP_Text progressText;
+    [SerializeField] private Image progressFill;
     [SerializeField] private GameObject cardArea;
     [SerializeField] private Button cardButton;
     [SerializeField] private TMP_Text cardText;
@@ -69,18 +69,6 @@ public class VocabManager : MonoBehaviour
     [SerializeField] private Button[] dialogButtons;          // 3 つ
     [SerializeField] private TMP_Text[] dialogLabels;
 
-    [Header("Add")]
-    [SerializeField] private TMP_InputField searchInput;
-    [SerializeField] private Button searchButton;
-    [SerializeField] private TMP_Text resultText;
-    [SerializeField] private Button addSoundButton;
-    [SerializeField] private Button addResultButton;
-    [SerializeField] private Transform suggestionContent;
-    [SerializeField] private GameObject suggestionTemplate;   // Button + 子の TMP
-    [SerializeField] private TMP_InputField manualWordInput;
-    [SerializeField] private TMP_InputField manualMeaningInput;
-    [SerializeField] private Button manualAddButton;
-
     [Header("Settings")]
     [SerializeField] private Button[] settingsLevelButtons;   // A1 A2 B1 B2
     [SerializeField] private Button[] sizeButtons;            // 5 10 15 20
@@ -95,7 +83,6 @@ public class VocabManager : MonoBehaviour
     private VocabContext _ctx;
     private VocabTodayView _today;
     private VocabWordsView _words;
-    private VocabAddView _add;
     private VocabSettingsView _settings;
     private int _tab = -1;
     private readonly Dictionary<Button, Color> _normalColors = new Dictionary<Button, Color>();
@@ -134,6 +121,7 @@ public class VocabManager : MonoBehaviour
             SetStatus = SetStatus,
             SetLoading = on => { if (loadingIndicator != null) loadingIndicator.SetActive(on); },
             Highlight = Highlight,
+            ShowTabs = on => { if (todayTab != null && todayTab.transform.parent != null) todayTab.transform.parent.gameObject.SetActive(on); },
         };
         _ctx.Capture = new VocabPronCapture(recorder, nativeStt, _ctx.Gemini);
     }
@@ -143,7 +131,7 @@ public class VocabManager : MonoBehaviour
         _today = new VocabTodayView(_ctx, new VocabTodayView.View
         {
             LevelPickRow = levelPickRow, LevelPickButtons = levelPickButtons, StartButton = startButton, StartLabel = startLabel,
-            ProgressText = progressText, CardArea = cardArea, CardButton = cardButton, CardText = cardText, SoundButton = soundButton,
+            ProgressText = progressText, ProgressFill = progressFill, CardArea = cardArea, CardButton = cardButton, CardText = cardText, SoundButton = soundButton,
             SayButton = sayButton, SayLabel = sayLabel, RatingRow = ratingRow, RatingButtons = ratingButtons, RatingLabels = ratingLabels,
             RatingHint = ratingHint, SummaryScroll = summaryScroll, SummaryContent = summaryContent, SummaryRowTemplate = summaryRowTemplate,
             RescoreButton = rescoreButton, WeakButton = weakButton, LevelUpButton = levelUpButton, LevelUpLabel = levelUpLabel,
@@ -154,12 +142,6 @@ public class VocabManager : MonoBehaviour
             RowTemplate = wordRowTemplate, DialogPanel = dialogPanel, DialogText = dialogText, DialogButtons = dialogButtons,
             DialogLabels = dialogLabels,
         });
-        _add = new VocabAddView(_ctx, new VocabAddView.View
-        {
-            SearchInput = searchInput, SearchButton = searchButton, ResultText = resultText, SoundButton = addSoundButton,
-            AddButton = addResultButton, SuggestionContent = suggestionContent, SuggestionTemplate = suggestionTemplate,
-            ManualWordInput = manualWordInput, ManualMeaningInput = manualMeaningInput, ManualAddButton = manualAddButton,
-        });
         _settings = new VocabSettingsView(_ctx, new VocabSettingsView.View
         {
             LevelButtons = settingsLevelButtons, SizeButtons = sizeButtons, RetentionButtons = retentionButtons, CreditText = creditText,
@@ -167,8 +149,7 @@ public class VocabManager : MonoBehaviour
 
         if (todayTab != null) todayTab.onClick.AddListener(() => ShowTab(0));
         if (wordsTab != null) wordsTab.onClick.AddListener(() => ShowTab(1));
-        if (addTab != null) addTab.onClick.AddListener(() => ShowTab(2));
-        if (settingsTab != null) settingsTab.onClick.AddListener(() => ShowTab(3));
+        if (settingsTab != null) settingsTab.onClick.AddListener(() => ShowTab(2));
         ShowTab(0);
     }
 
@@ -197,15 +178,12 @@ public class VocabManager : MonoBehaviour
         SetStatus("");
         if (todayPanel != null) todayPanel.SetActive(tab == 0);
         if (wordsPanel != null) wordsPanel.SetActive(tab == 1);
-        if (addPanel != null) addPanel.SetActive(tab == 2);
-        if (settingsPanel != null) settingsPanel.SetActive(tab == 3);
+        if (settingsPanel != null) settingsPanel.SetActive(tab == 2);
         Highlight(todayTab, tab == 0);
         Highlight(wordsTab, tab == 1);
-        Highlight(addTab, tab == 2);
-        Highlight(settingsTab, tab == 3);
+        Highlight(settingsTab, tab == 2);
         if (tab == 0) _today.Show();
         else if (tab == 1) _words.Show();
-        else if (tab == 2) _add.Show();
         else _settings.Show();
     }
 
@@ -235,6 +213,7 @@ public class VocabContext
     public Action<string> SetStatus;
     public Action<bool> SetLoading;
     public Action<Button, bool> Highlight;
+    public Action<bool> ShowTabs;           // 上の 4 つの切り替えを出す・隠す
 
     public const string NoDictionaryKey = "No dictionary key. Add merriamWebsterApiKey to ApiSecrets.json.";
 
@@ -242,8 +221,8 @@ public class VocabContext
     public async Task<DictionaryResult> LookupAsync(string word)
     {
         var cached = VocabStore.LoadDict(word);
-        if (cached != null) return cached;
-        if (Dictionary == null || !Dictionary.IsConfigured) return null;
+        if (cached != null && cached.Version >= DictionaryResult.CurrentVersion) return cached;
+        if (Dictionary == null || !Dictionary.IsConfigured) return cached;   // 引けないときは古い保存データのまま
         var r = await Dictionary.LookupAsync(word);
         VocabStore.SaveDict(word, r);
         return r;
@@ -260,6 +239,23 @@ public class VocabContext
     }
 
     /// <summary>TMP のタグとして読まれないようにする</summary>
+    /// <summary>辞書の結果を画面の文にする (見出し・品詞・CEFR・発音記号・意味)。カードの裏で使う</summary>
+    public string DescribeEntries(DictionaryResult r, string word, int maxDefs = 3)
+    {
+        var sb = new StringBuilder();
+        foreach (var e in r.Entries.Take(4))
+        {
+            string level = Cefr.LevelForPos(word, e.Pos);
+            sb.Append("<b>").Append(Esc(e.Headword)).Append("</b>");
+            if (e.Pos.Length > 0) sb.Append("  <i>").Append(Esc(e.Pos)).Append("</i>");
+            if (level != null) sb.Append("  <color=#aaaaaa>").Append(level).Append("</color>");
+            if (e.Ipa.Length > 0) sb.Append("  /").Append(Esc(e.Ipa)).Append('/');
+            sb.Append('\n');
+            foreach (var d in e.Definitions.Take(maxDefs)) sb.Append("<size=85%>- ").Append(Esc(d)).Append("</size>\n");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
     public static string Esc(string s) => (s ?? "").Replace("<", "<​");
 
     public static string PronLabel(string code) =>

@@ -6,7 +6,10 @@ using System.Text.RegularExpressions;
 /// <summary>
 /// Merriam-Webster Learner's Dictionary (dictionaryapi.com) の返事を読む。純粋な関数だけ。
 ///  - 見つからないときは文字列の配列 (似た単語) が返る
-///  - 見出し (meta.id の ':' より前) が単語と同じエントリーだけ使う (無ければ最初のエントリー)
+///  - 見出し (meta.id の ':' より前) が単語と同じエントリーだけ使う
+///  - 無ければ、派生語 (uros。例: calm の中の calmness) から探す。発音・品詞・例文は派生語のもの
+///    (派生語に音声が無ければ音声は空 = 端末の読み上げ。元の語の音声は流さない)
+///  - それも無ければ最初のエントリー
 /// </summary>
 public static class MerriamWebsterParser
 {
@@ -27,8 +30,12 @@ public static class MerriamWebsterParser
 
         string key = (word ?? "").Trim().ToLowerInvariant();
         var same = entries.Where(e => IdWord(e).ToLowerInvariant() == key).ToList();
-        if (same.Count == 0) same.Add(entries[0]);
-        result.Entries = same.Select(ReadEntry).ToList();
+        if (same.Count > 0) result.Entries = same.Select(ReadEntry).ToList();
+        else
+        {
+            result.Entries = entries.SelectMany(e => Uros(e).Where(u => UroWord(u).ToLowerInvariant() == key).Select(u => ReadUro(e, u))).ToList();
+            if (result.Entries.Count == 0) result.Entries.Add(ReadEntry(entries[0]));
+        }
         result.Found = result.Entries.Count > 0;
         return result;
     }
@@ -86,22 +93,42 @@ public static class MerriamWebsterParser
         var hwi = e.TryGetValue("hwi", out object h) ? h as Dictionary<string, object> : null;
         string hw = hwi != null ? JsonGet.Str(hwi, "hw").Replace("*", "").Trim() : "";
         entry.Headword = hw.Length > 0 ? Clean(hw) : IdWord(e);
-
-        if (hwi != null && hwi.TryGetValue("prs", out object p) && p is List<object> prs)
-        {
-            foreach (var pr in prs.OfType<Dictionary<string, object>>())
-            {
-                if (entry.Ipa.Length == 0) entry.Ipa = JsonGet.Str(pr, "ipa").Trim();
-                if (entry.AudioUrl.Length == 0 && pr.TryGetValue("sound", out object so) && so is Dictionary<string, object> sound)
-                    entry.AudioUrl = AudioUrl(JsonGet.Str(sound, "audio"));
-            }
-        }
+        if (hwi != null) ReadPrs(hwi, entry);
 
         if (e.TryGetValue("shortdef", out object sd) && sd is List<object> defs)
             entry.Definitions = defs.OfType<string>().Select(Clean).Where(d => d.Length > 0).ToList();
 
         if (e.TryGetValue("def", out object def)) CollectExamples(def, entry.Examples);
         return entry;
+    }
+
+    private static IEnumerable<Dictionary<string, object>> Uros(Dictionary<string, object> e) =>
+        e.TryGetValue("uros", out object u) && u is List<object> list ? list.OfType<Dictionary<string, object>>() : Enumerable.Empty<Dictionary<string, object>>();
+
+    private static string UroWord(Dictionary<string, object> uro) => Clean(JsonGet.Str(uro, "ure").Replace("*", "")).Trim();
+
+    // 派生語: 意味は辞書に無いので「(元の語) から」と元の語の意味を出す
+    private static DictEntry ReadUro(Dictionary<string, object> parent, Dictionary<string, object> uro)
+    {
+        var baseEntry = ReadEntry(parent);
+        var entry = new DictEntry { Headword = UroWord(uro), Pos = JsonGet.Str(uro, "fl").Trim() };
+        ReadPrs(uro, entry);
+        entry.Definitions.Add("from \"" + baseEntry.Headword + "\"" + (baseEntry.Pos.Length > 0 ? " (" + baseEntry.Pos + ")" : "") + ":");
+        entry.Definitions.AddRange(baseEntry.Definitions);
+        if (uro.TryGetValue("utxt", out object ut)) CollectExamples(ut, entry.Examples);
+        return entry;
+    }
+
+    // 発音記号と音声 (最初に見つかったもの)
+    private static void ReadPrs(Dictionary<string, object> owner, DictEntry entry)
+    {
+        if (!owner.TryGetValue("prs", out object p) || !(p is List<object> prs)) return;
+        foreach (var pr in prs.OfType<Dictionary<string, object>>())
+        {
+            if (entry.Ipa.Length == 0) entry.Ipa = JsonGet.Str(pr, "ipa").Trim();
+            if (entry.AudioUrl.Length == 0 && pr.TryGetValue("sound", out object so) && so is Dictionary<string, object> sound)
+                entry.AudioUrl = AudioUrl(JsonGet.Str(sound, "audio"));
+        }
     }
 
     // def の中を探して ["vis", [{t: ...}]] の t を集める (最大 2)

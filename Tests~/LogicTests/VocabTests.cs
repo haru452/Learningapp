@@ -111,6 +111,26 @@ public static partial class LogicTests
         var bare = MerriamWebsterParser.Parse("[{\"meta\":{\"id\":\"go\"},\"shortdef\":[]}]", "go");
         Check(bare.Found && bare.Entries.Count == 1 && bare.Entries[0].Ipa == "" && bare.Entries[0].AudioUrl == "" && bare.Entries[0].Pos == ""
               && bare.Entries[0].Headword == "go", "mw: no hwi/prs/fl -> empty fields");
+        // 派生語 (calm の中の calmness): 元の語の音声・発音記号は使わない
+        const string MwCalm =
+            "[{\"meta\":{\"id\":\"calm:1\"},\"hwi\":{\"hw\":\"calm\",\"prs\":[{\"ipa\":\"ˈkɑːm\",\"sound\":{\"audio\":\"calm0001\"}}]}," +
+            "\"fl\":\"adjective\",\"shortdef\":[\"not angry\"],\"uros\":[{\"ure\":\"calm*ly\",\"fl\":\"adverb\"}," +
+            "{\"ure\":\"calm*ness\",\"fl\":\"noun\",\"utxt\":[[\"vis\",[{\"t\":\"a feeling of {it}calmness{/it}\"}]]]}]}]";
+        var calmness = MerriamWebsterParser.Parse(MwCalm, "calmness");
+        Check(calmness.Found && calmness.Entries.Count == 1, "mw: run-on word found");
+        if (calmness.Entries.Count == 1)
+        {
+            var e = calmness.Entries[0];
+            Check(e.Headword == "calmness" && e.Pos == "noun", "mw: run-on headword and pos (" + e.Headword + " " + e.Pos + ")");
+            Check(e.AudioUrl == "" && e.Ipa == "", "mw: run-on without prs -> no audio of the base word (" + e.AudioUrl + ")");
+            Check(e.Definitions.SequenceEqual(new[] { "from \"calm\" (adjective):", "not angry" }), "mw: run-on definitions from the base word");
+            Check(e.Examples.SequenceEqual(new[] { "a feeling of calmness" }), "mw: run-on examples from utxt");
+        }
+        var withPron = MerriamWebsterParser.Parse(MwCalm.Replace("\"fl\":\"adverb\"}", "\"fl\":\"adverb\",\"prs\":[{\"ipa\":\"ˈkɑːmli\",\"sound\":{\"audio\":\"calm0002\"}}]}"), "calmly");
+        Check(withPron.Entries.Count == 1 && withPron.Entries[0].AudioUrl.EndsWith("/c/calm0002.mp3") && withPron.Entries[0].Ipa == "ˈkɑːmli",
+            "mw: run-on with its own prs -> its own audio");
+        Check(MerriamWebsterParser.Parse(MwCalm, "calm").Entries[0].AudioUrl.EndsWith("/c/calm0001.mp3"), "mw: base word keeps its audio");
+
         bool threw = false;
         try { MerriamWebsterParser.Parse("<html>", "x"); } catch (FormatException) { threw = true; }
         Check(threw, "mw: html -> FormatException");
@@ -282,6 +302,9 @@ public static partial class LogicTests
               && db.Entries[0].Examples.SequenceEqual(dict.Entries[0].Examples) && db.Entries[0].AudioUrl == dict.Entries[0].AudioUrl
               && db.Entries[0].Definitions.SequenceEqual(dict.Entries[0].Definitions) && db.Suggestions.SequenceEqual(new[] { "apply" }),
             "vjson: dictionary round trip");
+        Check(db != null && db.Version == DictionaryResult.CurrentVersion, "vjson: dictionary version saved");
+        var oldSaved = VocabJson.DictFromJson("{\"found\":true,\"suggestions\":[],\"entries\":[]}");
+        Check(oldSaved != null && oldSaved.Version == 0, "vjson: old saved dictionary -> version 0 (looked up again)");
         Check(VocabJson.DictFromJson("nope") == null, "vjson: broken dictionary -> null");
 
         // 単語帳

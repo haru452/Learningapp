@@ -104,7 +104,8 @@ public static class VocabJson
     // ---------------- 辞書の結果 ----------------
     public static string DictToJson(DictionaryResult r)
     {
-        var sb = new StringBuilder("{\"found\":").Append(r != null && r.Found ? "true" : "false");
+        var sb = new StringBuilder("{\"v\":").Append(r?.Version ?? DictionaryResult.CurrentVersion);
+        sb.Append(",\"found\":").Append(r != null && r.Found ? "true" : "false");
         sb.Append(",\"suggestions\":").Append(StrArray(r?.Suggestions));
         sb.Append(",\"entries\":[");
         var entries = r?.Entries ?? new List<DictEntry>();
@@ -128,6 +129,7 @@ public static class VocabJson
             if (!(MiniJson.Parse(json ?? "") is Dictionary<string, object> d)) return null;
             return new DictionaryResult
             {
+                Version = (int)Num(d, "v"),   // 無ければ 0 (古い保存データ)
                 Found = d.TryGetValue("found", out object f) && f is bool b && b,
                 Suggestions = Strings(d, "suggestions"),
                 Entries = (d.TryGetValue("entries", out object es) && es is List<object> list ? list : new List<object>())

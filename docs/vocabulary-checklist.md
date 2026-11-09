@@ -9,6 +9,7 @@
 
 ## 2. Unity で画面を作る
 - [ ] `SampleScene` を開き、**Tools → Vocabulary → Create Vocabulary Screen** を実行する
+- [ ] 作ってある画面には **Tools → Vocabulary → Update Vocabulary Screen** を実行する (ボタンを小さく・カードを大きく・Add タブを消す)
   - 「すでに VocabManager があります」と出たら、もう作ってある (`SampleScene.unity` が変更済みになっている。保存したかを確かめるだけ)
 - [ ] Repeat の右に「Vocab」タブがあるのを確かめて **Ctrl+S**
 - [ ] `SampleScene.unity` を `develop-words-book` に commit する (フォントの `LiberationSans SDF - Fallback.asset` は Unity が勝手に書き換えたもの。入れなくてよい)
@@ -20,7 +21,6 @@
 - [ ] Sound で音が出る (Editor では辞書の音声だけ。読み上げは出ない)
 - [ ] 最後まで行くとまとめが出る
 - [ ] Words: Learning / Known の切り替え、レベルで絞り込み、行をタップ → Back to learning / Delete
-- [ ] Add: 単語を検索 → Add to my words。ありえないつづりで検索 → 候補が出る。手入力で追加
 - [ ] Settings: レベル・語数・目標の想起率が選べる。出典が出ている
 - [ ] 見た目 (ボタンの大きさ・文字のはみ出し・日本語が表示されるか)
 

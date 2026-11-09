@@ -18,6 +18,9 @@ public class DictionaryResult
     public bool Found;
     public List<DictEntry> Entries = new List<DictEntry>();
     public List<string> Suggestions = new List<string>();
+    /// <summary>読み方の版。2 = 派生語 (calmness など) を正しく読む。古い保存データは引き直す</summary>
+    public int Version = CurrentVersion;
+    public const int CurrentVersion = 2;
 }
 
 public interface IDictionaryProvider

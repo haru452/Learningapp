@@ -12,7 +12,7 @@ using UnityEngine.UI;
 /// Today: 今日の単語。Start → カード (タップでめくる) → 4 つの評価 → … → まとめ (Gemini の発音の採点・連続記録)。
 /// 評価するたびに単語帳と履歴を保存する (途中でほかのタブへ移っても、評価した分は残る。録音は捨てる)
 /// </summary>
-public class VocabTodayView
+public partial class VocabTodayView
 {
     public struct View
     {
@@ -21,6 +21,7 @@ public class VocabTodayView
         public Button StartButton;
         public TMP_Text StartLabel;
         public TMP_Text ProgressText;
+        public Image ProgressFill;      // 進み具合の細い棒 (無くてもよい)
         public GameObject CardArea;
         public Button CardButton;
         public TMP_Text CardText;
@@ -122,7 +123,7 @@ public class VocabTodayView
         _ctx.SetLoading(false);
         _recs.Clear();
         VocabStore.DeleteAllRecordings();
-        _mode = Mode.Idle;
+        SetMode(Mode.Idle);
         _session = null;
         _scoring = false;
         _starting = false;
@@ -130,7 +131,7 @@ public class VocabTodayView
 
     private void ShowIdle()
     {
-        _mode = Mode.Idle;
+        SetMode(Mode.Idle);
         bool hasLevel = VocabSettings.Level.Length > 0;
         if (_v.LevelPickRow != null) _v.LevelPickRow.SetActive(!hasLevel);
         VocabContext.Show(_v.StartButton, hasLevel);
@@ -166,7 +167,7 @@ public class VocabTodayView
     {
         if (VocabSettings.Level.Length == 0) { ShowIdle(); return; }
         int token = ++_token;
-        _mode = Mode.Loading;
+        SetMode(Mode.Loading);
         ResetSessionData();
         SetActive(_v.SummaryScroll, false);
         HideSummaryButtons();
@@ -230,7 +231,7 @@ public class VocabTodayView
             return;
         }
         _session = new VocabSession(cards, VocabSettings.Retention / 100.0);
-        _mode = Mode.Card;
+        SetMode(Mode.Card);
         ShowCard();
     }
 
@@ -259,13 +260,13 @@ public class VocabTodayView
         {
             VocabContext.Show(_v.StartButton, true);
             if (_v.StartLabel != null) _v.StartLabel.text = _weakIndex + 1 < _weak.Count ? "Next" : "Back to summary";
-            SetProgress("Practice " + (_weakIndex + 1) + " / " + _weak.Count);
+            SetProgress("Practice " + (_weakIndex + 1) + " / " + _weak.Count, (_weakIndex + 1f) / _weak.Count);
             _ctx.SetStatus("Tap \"Say it\" and say the word.");
         }
         else
         {
             VocabContext.Show(_v.StartButton, false);
-            SetProgress("Word " + (_session.Index + 1) + " / " + _session.Count);
+            SetProgress("Word " + (_session.Index + 1) + " / " + _session.Count, (_session.Index + 1f) / _session.Count);
             _ctx.SetStatus(_note.Length > 0 ? _note : "Tap the card to see the meaning.");
         }
         if (_v.SayLabel != null) _v.SayLabel.text = "Say it";
@@ -294,7 +295,7 @@ public class VocabTodayView
     private string FrontText(VocabCard c, DictionaryResult dict)
     {
         var sb = new StringBuilder();
-        sb.Append("<size=160%><b>").Append(VocabContext.Esc(c.Word)).Append("</b></size>\n");
+        sb.Append("<size=220%><b>").Append(VocabContext.Esc(c.Word)).Append("</b></size>\n");
         sb.Append("<color=#aaaaaa>").Append(c.Cefr).Append("</color>");
         string ipa = dict != null && dict.Found ? dict.Entries.Select(e => e.Ipa).FirstOrDefault(x => !string.IsNullOrEmpty(x)) : null;
         if (!string.IsNullOrEmpty(ipa)) sb.Append("   /").Append(VocabContext.Esc(ipa)).Append('/');
@@ -311,8 +312,8 @@ public class VocabTodayView
     private string BackText(VocabCard c, DictionaryResult dict)
     {
         var sb = new StringBuilder();
-        sb.Append("<b>").Append(VocabContext.Esc(c.Word)).Append("</b>\n\n");
-        if (dict != null && dict.Found) sb.Append(VocabAddView.DescribeEntries(dict, _ctx, c.Word)).Append('\n');
+        sb.Append("<size=150%><b>").Append(VocabContext.Esc(c.Word)).Append("</b></size>\n\n");
+        if (dict != null && dict.Found) sb.Append(_ctx.DescribeEntries(dict, c.Word)).Append('\n');
         else sb.Append("<color=#aaaaaa>No dictionary entry.</color>\n");
         if (!string.IsNullOrWhiteSpace(c.MyMeaning)) sb.Append("\n<b>My meaning:</b> ").Append(VocabContext.Esc(c.MyMeaning)).Append('\n');
         var examples = dict != null && dict.Found ? dict.Entries.SelectMany(e => e.Examples).Take(2).ToList() : new List<string>();
@@ -424,209 +425,21 @@ public class VocabTodayView
     }
 
     // ------------------------------------------------------------
-    // まとめ
-    // ------------------------------------------------------------
-    private void ShowSummary(bool first)
-    {
-        _mode = Mode.Summary;
-        SetActive(_v.CardArea, false);
-        SetActive(_v.RatingRow, false);
-        VocabContext.Show(_v.RatingHint, false);
-        SetActive(_v.SummaryScroll, true);
-        VocabContext.Show(_v.StartButton, true);
-        if (_v.StartLabel != null) _v.StartLabel.text = "Start";
-        SetProgress("Summary");
-        if (first) BuildRows();
-        RefreshSummaryButtons();
-        if (!first) { _ctx.SetStatus("Tap \"Start\" for more words."); return; }
-
-        _ctx.SetStatus("Done. Tap \"Start\" for more words.");
-        _ = CountStudyDayAsync();
-        if (_recs.Count > 0) _ = ScoreAsync();
-    }
-
-    private void BuildRows()
-    {
-        VocabContext.ClearChildren(_v.SummaryContent, _v.SummaryRowTemplate);
-        _rows.Clear();
-        if (_v.SummaryRowTemplate == null || _session == null) return;
-        foreach (var c in _session.Cards)
-        {
-            var row = VocabContext.CloneRow(_v.SummaryRowTemplate, _v.SummaryContent);
-            var textT = row.transform.Find(RowTextName);
-            TMP_Text text = textT != null ? textT.GetComponent<TMP_Text>() : null;
-            if (text == null) text = row.GetComponentInChildren<TMP_Text>(true);
-            _rows[c.Word] = text;
-            var card = c;
-            var myVoiceT = row.transform.Find(MyVoicePath);
-            var myVoice = myVoiceT != null ? myVoiceT.GetComponent<Button>() : null;
-            if (myVoice != null)
-            {
-                myVoice.gameObject.SetActive(_recs.ContainsKey(c.Word));
-                myVoice.onClick.AddListener(() => { if (_recs.TryGetValue(card.Word, out byte[] w)) _ = PlaySafeAsync(() => _ctx.Audio.PlayWavAsync(w, CancellationToken.None)); });
-            }
-            var modelT = row.transform.Find(ModelPath);
-            var model = modelT != null ? modelT.GetComponent<Button>() : null;
-            if (model != null) model.onClick.AddListener(() => PlayModel(card));
-            UpdateRow(c);
-        }
-    }
-
-    private void UpdateRow(VocabCard c)
-    {
-        if (!_rows.TryGetValue(c.Word, out TMP_Text text) || text == null) return;
-        var sb = new StringBuilder();
-        sb.Append("<b>").Append(VocabContext.Esc(c.Word)).Append("</b>  <color=#aaaaaa>").Append(c.Cefr).Append("</color>");
-        sb.Append("\n<size=80%>Say: ").Append(_pron.TryGetValue(c.Word, out string p) ? VocabContext.PronLabel(p) : "<color=#aaaaaa>-</color>");
-        if (_recs.ContainsKey(c.Word) || _gemini.ContainsKey(c.Word))
-        {
-            sb.Append("   Gemini: ");
-            if (_gemini.TryGetValue(c.Word, out var g))
-            {
-                sb.Append(VocabContext.GeminiLabel(g.Rating));
-                if (g.Advice.Length > 0) sb.Append('\n').Append(VocabContext.Esc(g.Advice));
-                if (g.Sounds.Count > 0) sb.Append("\nSounds: ").Append(string.Join(", ", g.Sounds.Select(s => SoundTypes.Label(s, "other"))));
-            }
-            else sb.Append(_scoring ? "<color=#aaaaaa>...</color>" : "<color=#aaaaaa>-</color>");
-        }
-        sb.Append("</size>");
-        text.text = sb.ToString();
-    }
-
-    // 1 回分の録音をまとめて Gemini に送る。失敗したら [Score again]
-    private async Task ScoreAsync()
-    {
-        if (_scoring || _session == null) return;
-        var words = _recs.Keys.Where(w => !_gemini.ContainsKey(w)).Take(GeminiApiClient.MaxVocabWords).ToList();
-        if (words.Count == 0) return;
-        if (_ctx.Gemini == null) { _ctx.SetStatus("No Gemini key, so no pronunciation advice."); return; }
-        int token = _token;
-        _scoring = true;
-        _geminiFailed = false;
-        RefreshSummaryButtons();
-        foreach (var c in _session.Cards) UpdateRow(c);
-        _ctx.SetStatus("Checking your pronunciation...");
-        try
-        {
-            var results = await _ctx.Gemini.CheckWordPronunciationsAsync(words, words.Select(w => _recs[w]).ToList());
-            if (token != _token) return;
-            foreach (var r in results)
-            {
-                _gemini[r.Word] = r;
-                var card = _ctx.Deck.Find(r.Word);
-                if (card != null) card.GeminiPron = r.Rating;
-                VocabStore.DeleteRecording(r.Word);   // 採点が済んだ録音は消す (My voice 用にメモリには残す)
-            }
-            _ctx.SaveDeck();
-            // Gemini が返さなかった単語があれば、[Score again] でその単語だけもう一度
-            int missing = words.Count(w => !_gemini.ContainsKey(w));
-            _geminiFailed = missing > 0;
-            _ctx.SetStatus(missing > 0
-                ? missing + (missing == 1 ? " word was" : " words were") + " not checked. Tap \"Score again\"."
-                : "Done. Tap \"Start\" for more words.");
-        }
-        catch (Exception e)
-        {
-            if (token != _token) return;
-            Debug.LogWarning("[Vocab] Gemini pronunciation check failed: " + e.Message);
-            _geminiFailed = true;
-            _ctx.SetStatus("Could not check the pronunciation. Tap \"Score again\".");
-        }
-        finally
-        {
-            _scoring = false;   // 回が変わっていても必ず戻す (戻さないと次の回の採点が始まらない)
-            if (token == _token)
-            {
-                if (_mode == Mode.Summary)
-                {
-                    foreach (var c in _session.Cards) UpdateRow(c);
-                    RefreshSummaryButtons();
-                }
-            }
-        }
-    }
-
-    // 連続記録: 端末の連続記録とリマインダー + ログイン中ならクラウド (失敗は Console だけ)
-    private async Task CountStudyDayAsync()
-    {
-        var diary = UnityEngine.Object.FindObjectOfType<DiaryManager>(true);
-        if (diary != null) diary.CountOtherPracticeAsStudyDay();
-        var supabase = _ctx.Supabase;
-        if (supabase == null || !supabase.IsConfigured) return;
-        try
-        {
-            if (!await supabase.EnsureSignedInAsync()) return;
-            await supabase.CompleteVocabSessionAsync(DateTime.UtcNow);
-            if (diary != null) diary.RefreshStreakFromCloud();
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning("[Vocab] could not count the study day in the cloud: " + e.Message);
-        }
-    }
-
-    private void RefreshSummaryButtons()
-    {
-        bool summary = _mode == Mode.Summary;
-        VocabContext.Show(_v.RescoreButton, summary && _geminiFailed && !_scoring);
-        _weak = _session == null ? new List<VocabCard>() : _session.Cards.Where(c =>
-            (_pron.TryGetValue(c.Word, out string p) && p != VocabPronJudge.Clear)
-            || (_gemini.TryGetValue(c.Word, out var g) && g.Rating == "practice")).ToList();
-        VocabContext.Show(_v.WeakButton, summary && _weak.Count > 0);
-
-        string next = VocabLevel.Next(VocabSettings.Level);
-        bool suggest = summary && next != null && VocabLevel.ShouldSuggestUp(VocabStore.LoadReviews(), VocabSettings.LevelSetAt);
-        VocabContext.Show(_v.LevelUpButton, suggest);
-        if (suggest && _v.LevelUpLabel != null) _v.LevelUpLabel.text = "Level up to " + next + "?";
-    }
-
-    private void HideSummaryButtons()
-    {
-        VocabContext.Show(_v.RescoreButton, false);
-        VocabContext.Show(_v.WeakButton, false);
-        VocabContext.Show(_v.LevelUpButton, false);
-    }
-
-    private void LevelUp()
-    {
-        string next = VocabLevel.Next(VocabSettings.Level);
-        if (next == null) return;
-        VocabSettings.Level = next;
-        VocabContext.Show(_v.LevelUpButton, false);
-        _ctx.SetStatus("Level set to " + next + ". New words come from " + next + ".");
-    }
-
-    // ------------------------------------------------------------
-    // 苦手な単語の練習 (発音だけ。評価ボタンなし、Gemini は呼ばない)
-    // ------------------------------------------------------------
-    private void StartWeak()
-    {
-        if (_weak.Count == 0) return;
-        _mode = Mode.Weak;
-        _weakIndex = 0;
-        _weakCard = _weak[0];
-        ShowCard();
-    }
-
-    private void NextWeak()
-    {
-        _ctx.Capture.Cancel();
-        _weakIndex++;
-        if (_weakIndex >= _weak.Count)
-        {
-            _weakCard = null;
-            ShowSummary(first: false);
-            foreach (var c in _session.Cards) UpdateRow(c);
-            return;
-        }
-        _weakCard = _weak[_weakIndex];
-        ShowCard();
-    }
-
-    // ------------------------------------------------------------
-    private void SetProgress(string text)
+    // fraction: 0〜1 で棒の長さ。省略 (負の数) なら棒を隠す
+    private void SetProgress(string text, float fraction = -1f)
     {
         if (_v.ProgressText != null) _v.ProgressText.text = text;
+        if (_v.ProgressFill == null) return;
+        _v.ProgressFill.fillAmount = Mathf.Clamp01(fraction);
+        var track = _v.ProgressFill.transform.parent;
+        if (track != null) track.gameObject.SetActive(fraction >= 0f);
+    }
+
+    // 学習中 (読み込み・カード・苦手の練習) は上の Today / Words / Add / Settings を隠して、カードを広くする
+    private void SetMode(Mode mode)
+    {
+        _mode = mode;
+        _ctx.ShowTabs?.Invoke(mode == Mode.Idle || mode == Mode.Summary);
     }
 
     private static void SetActive(GameObject go, bool on)

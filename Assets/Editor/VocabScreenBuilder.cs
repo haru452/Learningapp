@@ -101,18 +101,16 @@ public static class VocabScreenBuilder
         Layout(tabRow, preferredHeight: 90);
         var (todayTab, _) = CreateButton("TodayTab", tabRow.transform, "Today");
         var (wordsTab, _) = CreateButton("WordsTab", tabRow.transform, "Words");
-        var (addTab, _) = CreateButton("AddTab", tabRow.transform, "Add");
         var (settingsTab, _) = CreateButton("SettingsTab", tabRow.transform, "Settings");
 
         var m = new Dictionary<string, Object>
         {
-            ["todayTab"] = todayTab, ["wordsTab"] = wordsTab, ["addTab"] = addTab, ["settingsTab"] = settingsTab,
+            ["todayTab"] = todayTab, ["wordsTab"] = wordsTab, ["settingsTab"] = settingsTab,
         };
         var arrays = new Dictionary<string, Object[]>();
 
         BuildToday(root.transform, m, arrays);
         BuildWords(root.transform, m, arrays);
-        BuildAdd(root.transform, m);
         BuildSettings(root.transform, m, arrays);
 
         var status = CreateText("StatusText", root.transform, "", 28, TextAlignmentOptions.Center);
@@ -156,6 +154,7 @@ public static class VocabScreenBuilder
         }
         so.ApplyModifiedPropertiesWithoutUndo();
 
+        VocabLayoutTuner.Apply(screen);
         screen.SetActive(false);   // タブボタンで開く
         return screen;
     }
@@ -296,53 +295,6 @@ public static class VocabScreenBuilder
         m["dialogText"] = dialogText;
         arrays["dialogButtons"] = dialogButtons.Select(b => (Object)b.Item1).ToArray();
         arrays["dialogLabels"] = dialogButtons.Select(b => (Object)b.Item2).ToArray();
-    }
-
-    // ---------------- Add ----------------
-    private static void BuildAdd(Transform root, Dictionary<string, Object> m)
-    {
-        var panel = CreateBox("AddPanel", root, vertical: true, spacing: 10);
-        Layout(panel, flexibleHeight: 1);
-        panel.SetActive(false);
-        m["addPanel"] = panel;
-
-        var searchRow = CreateBox("SearchRow", panel.transform, vertical: false, spacing: 12);
-        Layout(searchRow, preferredHeight: 90);
-        var search = CreateInput("SearchInput", searchRow.transform, "Word to look up");
-        Layout(search.gameObject, flexibleWidth: 3);
-        m["searchInput"] = search;
-        m["searchButton"] = CreateButton("SearchButton", searchRow.transform, "Search").Item1;
-
-        var (resultImage, resultContent) = CreateScroll("ResultScroll", panel.transform, new Color(0f, 0f, 0f, 0.25f));
-        Layout(resultImage.gameObject, minHeight: 240, flexibleHeight: 1);
-        var result = CreateText("ResultText", resultContent, "", 30, TextAlignmentOptions.TopLeft);
-        m["resultText"] = result;
-        var suggestions = CreateBox("Suggestions", resultContent, vertical: true, spacing: 8);
-        m["suggestionContent"] = suggestions.transform;
-        var (sugButton, _) = CreateButton("SuggestionTemplate", suggestions.transform, "");
-        Layout(sugButton.gameObject, preferredHeight: 80);
-        sugButton.gameObject.SetActive(false);
-        m["suggestionTemplate"] = sugButton.gameObject;
-
-        var resultRow = CreateBox("ResultButtons", panel.transform, vertical: false, spacing: 12);
-        Layout(resultRow, preferredHeight: 90);
-        m["addSoundButton"] = CreateButton("AddSoundButton", resultRow.transform, "Sound").Item1;
-        var (addResult, _) = CreateButton("AddResultButton", resultRow.transform, "Add to my words");
-        Layout(addResult.gameObject, flexibleWidth: 2);
-        m["addResultButton"] = addResult;
-
-        var manualTitle = CreateText("ManualTitle", panel.transform, "Add by hand", 28, TextAlignmentOptions.Left);
-        manualTitle.color = SubTextColor;
-        Layout(manualTitle.gameObject, preferredHeight: 44);
-        var word = CreateInput("ManualWordInput", panel.transform, "Word");
-        Layout(word.gameObject, preferredHeight: 80);
-        m["manualWordInput"] = word;
-        var meaning = CreateInput("ManualMeaningInput", panel.transform, "My meaning (Japanese is OK)");
-        Layout(meaning.gameObject, preferredHeight: 80);
-        m["manualMeaningInput"] = meaning;
-        var (manualAdd, _) = CreateButton("ManualAddButton", panel.transform, "Add");
-        Layout(manualAdd.gameObject, preferredHeight: 90);
-        m["manualAddButton"] = manualAdd;
     }
 
     // ---------------- Settings ----------------
