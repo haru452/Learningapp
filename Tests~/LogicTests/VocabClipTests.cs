@@ -31,6 +31,7 @@ public static partial class LogicTests
         YouTubeQuotaTests();
         VocabClipSearchLogTests();
         VocabClipSupabaseJsonTests();
+        VocabClipSourceTests();
     }
 
     private static void VocabClipFixtureTests()
