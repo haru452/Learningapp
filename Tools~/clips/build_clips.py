@@ -105,8 +105,27 @@ def load_env(path):
     return env
 
 
+def safe_err(e):
+    """表示してよい形にする。RuntimeError は自作の文 (URL を含まない)、それ以外は例外の名前だけ。"""
+    return str(e) if isinstance(e, RuntimeError) else type(e).__name__
+
+
+def next_offset(status, row_count, offset, content_range):
+    """次のページを読む位置。もう無ければ None。416・空のページで終わり、
+    Content-Range の総数 (a-b/total) があればそれに届いたら終わり。"""
+    if status == 416 or row_count == 0:
+        return None
+    nxt = offset + row_count
+    m = re.search(r"/(\d+)$", content_range or "")
+    if m and nxt >= int(m.group(1)):
+        return None
+    return nxt
+
+
 def yt_get(requests, path, params):
-    r = requests.get(YT + path, params=params, timeout=TIMEOUT)
+    params = dict(params)
+    key = params.pop("key")  # キーは URL に入れず (例外の表示に出るため)、ヘッダで送る
+    r = requests.get(YT + path, params=params, headers={"X-Goog-Api-Key": key}, timeout=TIMEOUT)
     if r.status_code != 200:
         try:
             reason = r.json()["error"]["errors"][0]["reason"]
@@ -153,18 +172,19 @@ def supa_headers(key, extra=None):
 def read_current(requests, url, key):
     """今 vocab_clips にある場面 (word, video_id, start_ms) を単語ごとに読む。"""
     current, offset, page = {}, 0, 1000
-    while True:
-        r = requests.get(url + "/rest/v1/vocab_clips?select=word,video_id,start_ms",
-                         headers=supa_headers(key, {"Range": "%d-%d" % (offset, offset + page - 1)}),
+    endpoint = url + "/rest/v1/vocab_clips?select=word,video_id,start_ms&order=word,video_id,start_ms"
+    while offset is not None:
+        r = requests.get(endpoint,
+                         headers=supa_headers(key, {"Range": "%d-%d" % (offset, offset + page - 1),
+                                                    "Prefer": "count=exact"}),
                          timeout=TIMEOUT)
-        if r.status_code not in (200, 206):
+        if r.status_code not in (200, 206, 416):
             raise RuntimeError("Supabase 読み込み %d: %s" % (r.status_code, r.text[:200]))
-        rows = r.json()
+        rows = r.json() if r.status_code != 416 else []
         for c in rows:
             current.setdefault(c["word"], []).append(c)
-        if len(rows) < page:
-            return current
-        offset += page
+        offset = next_offset(r.status_code, len(rows), offset, r.headers.get("Content-Range"))
+    return current
 
 
 def upload(requests, url, key, payload):
@@ -197,7 +217,7 @@ def collect_videos(requests, api, key, channels, done, max_videos):
         try:
             ids = list_channel_videos(requests, key, ch["id"], max_videos)
         except Exception as e:
-            print("[%s] 動画一覧を取れず飛ばす: %s" % (ch.get("name"), e))
+            print("[%s] 動画一覧を取れず飛ばす: %s" % (ch.get("name"), safe_err(e)))
             continue
         todo = [i for i in ids if i not in done]
         print("[%s] %d 本中 %d 本が未処理" % (ch.get("name"), len(ids), len(todo)))
@@ -252,8 +272,8 @@ def main(argv=None):
             return 0
         upload(requests, url, skey, payload)
         save_json(DONE_PATH, sorted(done))
-    except RuntimeError as e:
-        print("エラー: %s" % e)
+    except Exception as e:  # 通信の例外は URL を含むので名前だけ出す
+        print("エラー: %s" % safe_err(e))
         return 1
     return 0
 

@@ -127,3 +127,26 @@ class LoadWordsTest(unittest.TestCase):
             with open(p, "w", encoding="utf-8") as fp:
                 json.dump(data, fp)
             self.assertEqual(b.load_words(p), {"apple", "ice cream"})
+
+
+class NextOffsetTest(unittest.TestCase):
+    def test_empty_page_stops(self):
+        self.assertIsNone(b.next_offset(200, 0, 2000, None))
+
+    def test_416_stops(self):
+        self.assertIsNone(b.next_offset(416, 0, 3000, "*/3000"))
+
+    def test_short_page_continues_when_more_remain(self):
+        self.assertEqual(b.next_offset(206, 500, 0, "0-499/1200"), 500)
+
+    def test_reaches_total_stops(self):
+        self.assertIsNone(b.next_offset(200, 200, 1000, "1000-1199/1200"))
+
+    def test_no_total_continues_until_empty(self):
+        self.assertEqual(b.next_offset(200, 10, 0, None), 10)
+
+
+class SafeErrTest(unittest.TestCase):
+    def test_no_url(self):
+        self.assertEqual(b.safe_err(ValueError("https://x/?key=SECRET")), "ValueError")
+        self.assertEqual(b.safe_err(RuntimeError("YouTube API 403: quotaExceeded")), "YouTube API 403: quotaExceeded")
