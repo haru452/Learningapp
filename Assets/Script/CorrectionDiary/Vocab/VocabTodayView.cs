@@ -10,7 +10,7 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Today: 今日の単語。Start → カード (タップでめくる) → 4 つの評価 → … → まとめ (Gemini の発音の採点・連続記録)。
-/// 評価するたびに単語帳と履歴を保存する (途中でほかのタブへ移っても、評価した分は残る。録音は捨てる)
+/// 評価するたびに単語帳と履歴を保存する。途中でほかのタブへ移っても回はそのまま残り、戻ると続きから
 /// </summary>
 public partial class VocabTodayView
 {
@@ -59,7 +59,8 @@ public partial class VocabTodayView
     private readonly System.Random _rng = new System.Random();
 
     private Mode _mode = Mode.Idle;
-    private int _token;                     // Leave() で増やす (古い非同期の続きを捨てる)
+    private int _token;                     // 新しい回を始めたら増やす (古い非同期の続きを捨てる)
+    private int _sayToken;                  // Pause() で増やす (止めた聞き取りの続きを捨てる)
     private VocabSession _session;
     private readonly Dictionary<string, DictionaryResult> _dicts = new Dictionary<string, DictionaryResult>();
     private readonly Dictionary<string, string> _pron = new Dictionary<string, string>();     // この回の最後の判定
@@ -112,21 +113,28 @@ public partial class VocabTodayView
     public void Show()
     {
         if (_mode == Mode.Idle) ShowIdle();
+        else if (_mode == Mode.Summary) _ctx.SetStatus(_scoring ? "Checking your pronunciation..." : "Tap \"Start\" for more words.");
+        else if (_mode == Mode.Card || _mode == Mode.Weak) ShowStatusForCard();
     }
 
-    /// <summary>ほかのタブ・画面へ移った: 回は終わり。録音は捨てる</summary>
-    public void Leave()
+    /// <summary>
+    /// ほかのタブ・画面へ移った: マイクと音声だけ止める。回 (今のカード・まとめ・録音) はそのまま残し、
+    /// 戻ってきたら続きから。読み込みや採点も裏で続ける
+    /// </summary>
+    public void Pause()
     {
-        _token++;
+        _sayToken++;
         _ctx.Capture.Cancel();
         _ctx.Audio.Stop();
-        _ctx.SetLoading(false);
-        _recs.Clear();
-        VocabStore.DeleteAllRecordings();
-        SetMode(Mode.Idle);
-        _session = null;
-        _scoring = false;
         _starting = false;
+        if (_v.SayLabel != null) _v.SayLabel.text = "Say it";
+        if (_mode == Mode.Card || _mode == Mode.Weak) ShowStatusForCard();
+    }
+
+    private void ShowStatusForCard()
+    {
+        if (_mode == Mode.Weak) _ctx.SetStatus("Tap \"Say it\" and say the word.");
+        else _ctx.SetStatus(_note.Length > 0 ? _note : "Tap the card to see the meaning.");
     }
 
     private void ShowIdle()
@@ -354,7 +362,7 @@ public partial class VocabTodayView
     private async Task StartSayAsync()
     {
         _ctx.Audio.Stop();
-        int token = _token;
+        int token = _token, sayToken = _sayToken;
         var card = CurrentCard;
         _starting = true;
         bool ok;
@@ -362,7 +370,8 @@ public partial class VocabTodayView
         catch (Exception e) { Debug.LogWarning("[Vocab] could not start listening: " + e.Message); ok = false; }
         finally { _starting = false; }
         // 権限を待つ間に評価した・タブを移った: 始めた聞き取りは捨てる (別のカードの結果にしない)
-        if (ok && (token != _token || card != CurrentCard)) { _ctx.Capture.Cancel(); return; }
+        if (ok && (token != _token || sayToken != _sayToken || card != CurrentCard)) { _ctx.Capture.Cancel(); return; }
+        if (sayToken != _sayToken) return;
         if (!ok) { _ctx.SetStatus("Could not use the microphone."); return; }
         if (_v.SayLabel != null) _v.SayLabel.text = "Stop";
         _ctx.SetStatus("Listening... say the word.");
@@ -372,13 +381,13 @@ public partial class VocabTodayView
     {
         if (_finishing) return;
         _finishing = true;
-        int token = _token;
+        int token = _token, sayToken = _sayToken;
         var c = CurrentCard;
         if (_v.SayLabel != null) _v.SayLabel.text = "...";
         try
         {
             var (heard, wav) = await _ctx.Capture.StopAsync();
-            if (token != _token || c == null || c != CurrentCard) return;
+            if (token != _token || sayToken != _sayToken || c == null || c != CurrentCard) return;
             string verdict = VocabPronJudge.Judge(c.Word, heard);
             _pron[c.Word] = verdict;
             _heard[c.Word] = heard;

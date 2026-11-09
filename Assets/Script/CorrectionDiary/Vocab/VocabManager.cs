@@ -155,14 +155,13 @@ public class VocabManager : MonoBehaviour
 
     private void OnDisable()
     {
-        // ほかの画面に切り替えた: 回は終わり (評価した単語はもう保存してある。録音は捨てる)
-        _today?.Leave();
-        if (_tab == 0) _tab = -1;
+        // ほかの画面に切り替えた: マイクと音声だけ止める。戻ったら同じタブ・同じカードから続ける
+        _today?.Pause();
     }
 
     private void OnEnable()
     {
-        if (_today != null && _tab == -1) ShowTab(0);
+        if (_today != null && _tab == 0) _today.Show();   // 状況に合った案内文に戻す
     }
 
     private void OnDestroy()
@@ -173,7 +172,7 @@ public class VocabManager : MonoBehaviour
     private void ShowTab(int tab)
     {
         if (tab == _tab) return;
-        if (_tab == 0) _today.Leave();
+        if (_tab == 0) _today.Pause();
         _tab = tab;
         SetStatus("");
         if (todayPanel != null) todayPanel.SetActive(tab == 0);
