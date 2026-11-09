@@ -1,0 +1,12 @@
+{
+  "captions": {
+    "playerCaptionsTracklistRenderer": {
+      "captionTracks": [
+        {"baseUrl": "https://example.test/api/timedtext?v=abc&lang=ja&fmt=srv3", "languageCode": "ja"},
+        {"baseUrl": "https://example.test/api/timedtext?v=abc&kind=asr&lang=en&fmt=srv3", "languageCode": "en", "kind": "asr"},
+        {"baseUrl": "https://example.test/api/timedtext?v=abc&lang=en-GB&fmt=srv3", "languageCode": "en-GB"},
+        {"baseUrl": "https://example.test/api/timedtext?v=abc&lang=en&fmt=srv3", "languageCode": "en"}
+      ]
+    }
+  }
+}

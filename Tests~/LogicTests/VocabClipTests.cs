@@ -27,6 +27,7 @@ public static partial class LogicTests
     {
         VocabClipFixtureTests();
         VocabClipMergeTests();
+        YouTubeTranscriptTests();
     }
 
     private static void VocabClipFixtureTests()
@@ -70,5 +71,34 @@ public static partial class LogicTests
         Check(VocabClipFinder.Merge(cur, new List<VocabClip> { MakeClip("a", 5) }).Count == 1, "clip merge: already in current");
         var three = VocabClipFinder.Merge(new List<VocabClip>(), new List<VocabClip> { MakeClip("a", 1), MakeClip("a", 2), MakeClip("a", 3) });
         Check(three.Count == 2, "clip merge: 3 in one video -> 2");
+    }
+    // YouTubeTranscriptClient の字幕トラック選びと timedtext の読み取り
+    private static void YouTubeTranscriptTests()
+    {
+        var dir = Path.Combine(FindRepoRoot(), "Tests~", "LogicTests", "fixtures");
+        var player = File.ReadAllText(Path.Combine(dir, "player_response.json"));
+        Check(YouTubeTranscriptClient.PickTrackUrl(player) == "https://example.test/api/timedtext?v=abc&lang=en", "yt pick: human en preferred, fmt removed");
+
+        string Track(string lang, string kind) =>
+            "{\"baseUrl\":\"https://x.test/t?lang=" + lang + "&fmt=srv3\",\"languageCode\":\"" + lang + "\"" + (kind != null ? ",\"kind\":\"" + kind + "\"" : "") + "}";
+        string Wrap(params string[] tracks) =>
+            "{\"captions\":{\"playerCaptionsTracklistRenderer\":{\"captionTracks\":[" + string.Join(",", tracks) + "]}}}";
+        Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("en", "asr"))) == "https://x.test/t?lang=en", "yt pick: asr only");
+        Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("ja", null))) == null, "yt pick: ja only -> null");
+        Check(YouTubeTranscriptClient.PickTrackUrl("{\"videoDetails\":{}}") == null, "yt pick: no captions -> null");
+        Check(YouTubeTranscriptClient.PickTrackUrl("not json") == null, "yt pick: not json -> null");
+        Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("en-GB", null), Track("en-US", null))) == "https://x.test/t?lang=en-GB", "yt pick: first human en-*");
+
+        var lines = YouTubeTranscriptClient.ParseTimedText(File.ReadAllText(Path.Combine(dir, "timedtext.xml")));
+        Check(lines.Count == 3, "yt timedtext: 3 lines, got " + lines.Count);
+        if (lines.Count == 3)
+        {
+            Check(lines[0].Start == 0.5 && lines[0].Duration == 2.25, "yt timedtext: start/dur");
+            Check(lines[0].Text == "It's a test.", "yt timedtext: &#39; -> ' : " + lines[0].Text);
+            Check(lines[1].Text == "Tom & Jerry second line", "yt timedtext: entity+newline : " + lines[1].Text);
+            Check(lines[2].Start == 5.75 && lines[2].Duration == 0, "yt timedtext: missing dur -> 0");
+        }
+        Check(YouTubeTranscriptClient.ParseTimedText("<transcript/>").Count == 0, "yt timedtext: empty");
+        Check(YouTubeTranscriptClient.ParseTimedText("<<broken").Count == 0, "yt timedtext: invalid xml");
     }
 }
