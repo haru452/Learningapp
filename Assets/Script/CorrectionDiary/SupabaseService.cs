@@ -12,7 +12,7 @@ using UnityEngine;
 /// ・ここに置くのは Project URL と anon キーだけ (service_role キーは絶対に入れない)。
 /// ・ログイン状態は、リフレッシュトークンを PlayerPrefs に保存して、次回起動時に復元する。
 /// </summary>
-public class SupabaseService : MonoBehaviour
+public partial class SupabaseService : MonoBehaviour
 {
     // ------------------------------------------------------------
     // Inspector

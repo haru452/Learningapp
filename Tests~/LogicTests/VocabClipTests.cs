@@ -30,6 +30,7 @@ public static partial class LogicTests
         YouTubeTranscriptTests();
         YouTubeQuotaTests();
         VocabClipSearchLogTests();
+        VocabClipSupabaseJsonTests();
     }
 
     private static void VocabClipFixtureTests()
@@ -148,5 +149,32 @@ public static partial class LogicTests
         }
         var partial = VocabClipSearchLog.FromJson("{\"count\":5,\"x\":1}");
         Check(partial.Count == 5 && partial.Date == "", "searchlog: unknown/missing fields");
+    }
+
+    // Supabase に送る・受け取る JSON (SupabaseService.VocabClips.cs)
+    private static void VocabClipSupabaseJsonTests()
+    {
+        Check(SupabaseService.BuildClipsJson(null) == "[]" && SupabaseService.BuildClipsJson(new List<VocabClip>()) == "[]", "clips json: empty");
+        Check(SupabaseService.BuildWordsJson(null) == "[]" && SupabaseService.BuildWordsJson(new List<string>()) == "[]", "words json: empty");
+        var clip = new VocabClip { Word = "run", VideoId = "abc", StartMs = 1500, EndMs = 4200, Sentence = "He said \"go\"\nnow.", Channel = "ch", Source = "channel" };
+        var json = SupabaseService.BuildClipsJson(new List<VocabClip> { clip });
+        var doc = JsonDocument.Parse(json).RootElement; // 正しい JSON か
+        var o = doc[0];
+        Check(o.GetProperty("word").GetString() == "run" && o.GetProperty("video_id").GetString() == "abc", "clips json: strings");
+        Check(o.GetProperty("start_ms").GetInt32() == 1500 && o.GetProperty("end_ms").GetInt32() == 4200, "clips json: numbers");
+        Check(o.GetProperty("sentence").GetString() == "He said \"go\"\nnow.", "clips json: escape");
+        Check(o.GetProperty("channel").GetString() == "ch" && o.GetProperty("source").GetString() == "channel", "clips json: channel/source");
+        var wj = SupabaseService.BuildWordsJson(new List<string> { "a\"b", "c" });
+        Check(JsonDocument.Parse(wj).RootElement[0].GetString() == "a\"b" && wj.EndsWith(",\"c\"]"), "words json: escape");
+
+        var rows = "[{\"id\":\"u1\",\"word\":\"run\",\"video_id\":\"abc\",\"start_ms\":1500,\"end_ms\":4200,\"sentence\":\"Hi.\",\"channel\":null,\"source\":\"search\",\"created_at\":\"x\"},"
+                   + "{\"word\":\"nov\"},{\"video_id\":\"v\"},{\"word\":\"w\",\"video_id\":\"v\"}]";
+        var got = SupabaseService.ParseClips(rows);
+        Check(got.Count == 2, "parse clips: count " + got.Count);
+        Check(got[0].Word == "run" && got[0].VideoId == "abc" && got[0].StartMs == 1500 && got[0].EndMs == 4200 && got[0].Sentence == "Hi." && got[0].Source == "search", "parse clips: fields");
+        Check(got[1].StartMs == 0 && got[1].EndMs == 0, "parse clips: missing numbers are 0");
+        Check(SupabaseService.ParseClips("").Count == 0 && SupabaseService.ParseClips("{\"a\":1}").Count == 0 && SupabaseService.ParseClips("[{bad").Count == 0 && SupabaseService.ParseClips(null).Count == 0, "parse clips: broken -> empty");
+        var rt = SupabaseService.ParseClips(json);
+        Check(rt.Count == 1 && rt[0].Sentence == clip.Sentence && rt[0].StartMs == 1500 && rt[0].Channel == "ch", "clips json round trip");
     }
 }
