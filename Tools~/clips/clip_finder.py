@@ -7,6 +7,7 @@ import re
 MAX_PER_WORD = 10
 MAX_PER_VIDEO = 2
 LEAD_MS = 1000
+MIN_START_SECONDS = 10  # 最初の 10 秒は曲名などの表示で、読まれないことが多いので使わない
 
 
 def tokens(text):
@@ -43,6 +44,10 @@ def find_in_video(word, video_id, channel, source, lines):
         if len(result) >= MAX_PER_VIDEO:
             break
         if not line or float(line.get("duration") or 0) <= 0:  # 0 秒の行は流せない
+            continue
+        if float(line["start"]) < MIN_START_SECONDS:
+            continue
+        if any(ch in (line.get("text") or "") for ch in "♪♫"):  # ♪ の付いた行は歌詞
             continue
         if not _contains_run(tokens(line.get("text")), target):
             continue

@@ -44,6 +44,7 @@ public static partial class LogicTests
         RepeatDiscordTests();
         VocabTests();
         VocabClipTests();
+        VocabImageTests();
         ReminderTests();
 
         if (_failed > 0)

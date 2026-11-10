@@ -141,7 +141,10 @@ public class VocabManager : MonoBehaviour
         };
         _ctx.Capture = new VocabPronCapture(recorder, nativeStt, _ctx.Gemini);
         if (VideosEnabled) SetUpClips(secrets);
+        _pixabay = new PixabayClient(secrets.pixabayApiKey);
     }
+
+    private PixabayClient _pixabay;   // 単語カードの裏の画像 (キーが無ければ画像は出さない)
 
     // シーンを組み立て直す前 (Videos の部品が無い) は動画の機能を使わない
     private bool VideosEnabled => videosButton != null && videosPanel != null;
@@ -206,6 +209,9 @@ public class VocabManager : MonoBehaviour
             RescoreButton = rescoreButton, WeakButton = weakButton, LevelUpButton = levelUpButton, LevelUpLabel = levelUpLabel,
             VideosButton = videosButton,
         }, videos);
+        if (_pixabay != null && _pixabay.IsConfigured && cardArea != null && soundButton != null)
+            _today.SetCardImage(new VocabCardImageView(cardArea, soundButton.transform.parent, _pixabay, cardText != null ? cardText.font : null,
+                () => { if (cardButton != null) cardButton.onClick.Invoke(); }));
         _words = new VocabWordsView(_ctx, new VocabWordsView.View
         {
             LearningToggle = learningToggle, KnownToggle = knownToggle, FilterButtons = filterButtons, Content = wordsContent,

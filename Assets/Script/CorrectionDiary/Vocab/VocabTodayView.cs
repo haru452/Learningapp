@@ -70,6 +70,7 @@ public partial class VocabTodayView
     private readonly Dictionary<string, GeminiApiClient.WordPronResult> _gemini = new Dictionary<string, GeminiApiClient.WordPronResult>();
     private readonly Dictionary<string, TMP_Text> _rows = new Dictionary<string, TMP_Text>();
     private bool _flipped;
+    private VocabCardImageView _image;      // 裏で Sound / Say it / Videos の代わりに出す画像 (キーが無ければ null)
     private bool _finishing;
     private bool _starting;
     private bool _scoring;
@@ -332,12 +333,20 @@ public partial class VocabTodayView
         Render();
     }
 
+    /// <summary>裏の画像をつなぐ (VocabManager から、Pixabay のキーがあるときだけ)</summary>
+    public void SetCardImage(VocabCardImageView image) => _image = image;
+
     private void Render()
     {
         var c = CurrentCard;
         if (c == null) return;
         _dicts.TryGetValue(c.Word, out DictionaryResult dict);
         if (_v.CardText != null) _v.CardText.text = _flipped ? BackText(c, dict) : FrontText(c, dict);
+
+        // Sound / Say it / Videos は表だけ。裏ではその場所に単語の画像を出す (表のうちに先に取っておく)
+        SetActive(_v.SoundButton != null ? _v.SoundButton.transform.parent.gameObject : null, !_flipped);
+        if (_flipped) _image?.Show(c.Word);
+        else _image?.Hide(preloadWord: c.Word);
 
         bool rating = _mode == Mode.Card && _flipped;
         SetActive(_v.RatingRow, rating);

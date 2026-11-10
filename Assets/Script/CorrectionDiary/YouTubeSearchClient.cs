@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -44,7 +45,7 @@ public class YouTubeSearchClient
 
     [Serializable] private class VideosResponse { public VideoItem[] items; }
     [Serializable] private class VideoItem { public string id; public Snippet snippet; public ContentDetails contentDetails; }
-    [Serializable] private class Snippet { public string title; public string channelTitle; public string defaultAudioLanguage; }
+    [Serializable] private class Snippet { public string title; public string channelTitle; public string defaultAudioLanguage; public string categoryId; }
     [Serializable] private class ContentDetails { public string duration; }
 
     /// <summary>
@@ -143,6 +144,7 @@ public class YouTubeSearchClient
     /// 単語帳用: 単語を "..." で囲んで検索し、動画を検索の順のまま返す (見つからなければ空)。
     /// 字幕付き・埋め込み可・英語・セーフサーチ。タイトルとチャンネル名は videos.list (1回) で補う。長さは使わない (0)。
     /// relevanceLanguage は「優先」だけなので、音声の言語が英語以外と登録された動画はここで外す。
+    /// 曲 (ジャンルが音楽・タイトルが歌の動画) も外す (紹介や説明の動画で、話している英語を聞かせたい)。
     /// HttpException はそのまま投げる (上限かどうかは IsQuotaExceeded で見分ける)。
     /// </summary>
     public async Task<List<Video>> SearchWordVideosAsync(string word)
@@ -173,6 +175,7 @@ public class YouTubeSearchClient
         {
             byId.TryGetValue(id, out VideoItem it);
             if (!IsEnglishAudio(it?.snippet?.defaultAudioLanguage)) continue;
+            if (IsMusic(it?.snippet?.categoryId, it?.snippet?.title)) continue;
             result.Add(new Video { id = id, title = it?.snippet?.title ?? "", channel = it?.snippet?.channelTitle ?? "" });
         }
         return result;
@@ -184,6 +187,19 @@ public class YouTubeSearchClient
         if (string.IsNullOrEmpty(language)) return true;
         string l = language.ToLowerInvariant();
         return l == "en" || l.StartsWith("en-", StringComparison.Ordinal);
+    }
+
+    private const string MusicCategoryId = "10";
+    private static readonly string[] MusicTitleWords =
+        { "lyric", "official video", "official music video", "music video", "official audio", "karaoke", "(audio)", "[audio]" };
+
+    /// <summary>曲の動画か: ジャンルが音楽、またはタイトルに歌の動画らしい言葉 (lyrics・MV など) がある</summary>
+    public static bool IsMusic(string categoryId, string title)
+    {
+        if (categoryId == MusicCategoryId) return true;
+        string t = (title ?? "").ToLowerInvariant();
+        if (MusicTitleWords.Any(w => t.Contains(w))) return true;
+        return Regex.IsMatch(t, @"(^|[^a-z])m/?v([^a-z]|$)");   // "MV", "M/V"
     }
 
     /// <summary>1日の利用枠を使い切った (403 で quotaExceeded / dailyLimitExceeded) かどうか</summary>

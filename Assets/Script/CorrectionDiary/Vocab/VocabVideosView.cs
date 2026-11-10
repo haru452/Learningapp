@@ -170,7 +170,7 @@ public class VocabVideosView
     private void UseClips(List<VocabClip> clips)
     {
         _clips = clips ?? new List<VocabClip>();
-        _clips.RemoveAll(c => c == null);
+        _clips.RemoveAll(c => c == null || VocabClipFinder.IsNearStart(c));   // 前に保存した、最初の曲名などの場面
         _failed.Clear();
         if (_clips.Count == 0) { ShowMessage(NoneText); return; }
         ShowClip(0, play: true);
@@ -196,7 +196,8 @@ public class VocabVideosView
     {
         if (_index < 0 || _player == null) return;
         var clip = _clips[_index];
-        _player.Show(clip.VideoId, clip.StartMs / 1000.0, clip.EndMs / 1000.0);
+        var (start, end) = VocabClipFinder.PlayRange(clip);
+        _player.Show(clip.VideoId, start, end);
         _played = _index;
     }
 

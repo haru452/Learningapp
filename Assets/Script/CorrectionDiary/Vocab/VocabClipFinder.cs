@@ -20,6 +20,20 @@ public class VocabClip
 public static class VocabClipFinder
 {
     public const int MaxPerWord = 10, MaxPerVideo = 2, LeadMs = 1000;
+    /// <summary>この秒より前の字幕は場面にしない (曲名などの表示で、読まれないことが多い)</summary>
+    public const double MinStartSeconds = 10;
+    /// <summary>流すときに場面の前後へ足す長さ (保存した場面の秒数は変えない)</summary>
+    public const int PlayExtraLeadMs = 2000, PlayExtraTailMs = 2000;
+
+    /// <summary>歌詞の行か (♪ や ♫ が付いている)</summary>
+    public static bool IsSung(string text) => text != null && (text.IndexOf('♪') >= 0 || text.IndexOf('♫') >= 0);
+
+    /// <summary>最初の MinStartSeconds 秒の字幕から作った場面か (前に保存した場面を表示のときに外す)</summary>
+    public static bool IsNearStart(VocabClip c) => c != null && c.StartMs < MinStartSeconds * 1000 - LeadMs;
+
+    /// <summary>流す範囲 (秒)。場面の前後を少し長くする</summary>
+    public static (double start, double end) PlayRange(VocabClip c) =>
+        (Math.Max(0, c.StartMs - PlayExtraLeadMs) / 1000.0, (c.EndMs + PlayExtraTailMs) / 1000.0);
 
     // 小文字にして、[a-z'] 以外で区切り、前後の ' を取る
     public static List<string> Tokens(string text)
@@ -48,6 +62,8 @@ public static class VocabClipFinder
         {
             if (result.Count >= MaxPerVideo) break;
             if (line == null || line.Duration <= 0) continue; // 0 秒の行は流せない
+            if (line.Start < MinStartSeconds) continue;        // 最初は曲名などの表示で、読まれないことが多い
+            if (IsSung(line.Text)) continue;                   // ♪ の付いた行は歌詞 (話している英語ではない)
             if (!ContainsRun(Tokens(line.Text), target)) continue;
             int startMs = (int)Math.Max(0, Math.Round(line.Start * 1000, MidpointRounding.AwayFromZero) - LeadMs);
             int endMs = (int)Math.Round((line.Start + line.Duration) * 1000, MidpointRounding.AwayFromZero);

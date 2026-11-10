@@ -25,6 +25,7 @@ public static partial class LogicTests
 
     private static void VocabClipTests()
     {
+        VocabClipPlayRangeTests();
         VocabClipFixtureTests();
         VocabClipMergeTests();
         YouTubeTranscriptTests();
@@ -100,6 +101,13 @@ public static partial class LogicTests
         Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("ko", null), Track("en", null), Track("ko", "asr"))) == null, "yt pick: ko speech -> null");
         Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("en", null), Track("en", "asr"))) == "https://x.test/t?lang=en", "yt pick: en speech + en human -> human");
         Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("ja", null), Track("en-US", "asr"))) == "https://x.test/t?lang=en-US", "yt pick: en speech + ja subtitles -> en asr");
+
+        // 検索: 曲の動画は外す (紹介や説明の動画を使う)
+        Check(YouTubeSearchClient.IsMusic("10", "Learn English"), "yt music: category 10");
+        Check(YouTubeSearchClient.IsMusic("24", "Calm Down (Lyrics)") && YouTubeSearchClient.IsMusic("22", "Calm - Official Video")
+              && YouTubeSearchClient.IsMusic("22", "[MV] Calm") && YouTubeSearchClient.IsMusic("22", "Calm M/V"), "yt music: title words");
+        Check(!YouTubeSearchClient.IsMusic("27", "How to stay calm") && !YouTubeSearchClient.IsMusic(null, null)
+              && !YouTubeSearchClient.IsMusic("22", "My movie review"), "yt music: talk videos kept");
 
         // 検索: 音声の言語が英語以外の動画は外す (言語が登録されていなければ残し、字幕で確かめる)
         Check(YouTubeSearchClient.IsEnglishAudio(null) && YouTubeSearchClient.IsEnglishAudio(""), "yt audio: unknown -> keep");
@@ -217,5 +225,17 @@ public static partial class LogicTests
         Check(VocabVideosView.Highlight("<b>calm</b>", "calm") == "<" + Zw + "b><b>calm</b><" + Zw + "/b>", "highlight: 文の中のタグは効かない");
         Check(VocabVideosView.Highlight(null, "calm") == "", "highlight: null の文");
         Check(VocabVideosView.Highlight("a < calm", "") == "a <" + Zw + " calm", "highlight: 単語が空ならエスケープだけ");
+    }
+
+    private static void VocabClipPlayRangeTests()
+    {
+        var c = new VocabClip { StartMs = 19000, EndMs = 23000 };
+        var (start, end) = VocabClipFinder.PlayRange(c);
+        Check(start == 17.0 && end == 25.0, "clip play range: 2 s more on each side (" + start + "," + end + ")");
+        var (s0, _) = VocabClipFinder.PlayRange(new VocabClip { StartMs = 1000, EndMs = 3000 });
+        Check(s0 == 0, "clip play range: not below 0");
+        Check(VocabClipFinder.IsNearStart(new VocabClip { StartMs = 0 }) && VocabClipFinder.IsNearStart(new VocabClip { StartMs = 8999 }),
+            "clip near start: line before 10 s");
+        Check(!VocabClipFinder.IsNearStart(new VocabClip { StartMs = 9000 }), "clip near start: line at 10 s is kept");
     }
 }

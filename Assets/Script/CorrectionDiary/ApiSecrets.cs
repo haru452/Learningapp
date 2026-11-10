@@ -37,6 +37,7 @@ public class ApiSecrets
     public string pronunciationDiscordChannelId;    // Webhook の代わりに Bot で送る場合のチャンネルID
     public string repeatDiscordWebhookUrl;          // リピーティングの結果を送る Webhook (別のチャンネル)
     public string repeatDiscordChannelId;           // Webhook の代わりに Bot で送る場合のチャンネルID
+    public string pixabayApiKey;                    // 単語カードの裏の画像 (pixabay.com/api/docs の Key)。空なら画像は出さない
     public string merriamWebsterApiKey;             // 単語帳の辞書 (Merriam-Webster Learner's Dictionary、dictionaryapi.com の Key (Dictionary))
 
     private const string ResourceName = "ApiSecrets";
