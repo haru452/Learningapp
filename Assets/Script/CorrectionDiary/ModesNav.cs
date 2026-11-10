@@ -92,7 +92,7 @@ public static class ModesNav
             new BottomNavBar.Item { label = "Vocab", markFrom = tabs["Vocab"], onClick = Press("Vocab"), screens = new[] { ScreenOf("Vocab") } },
             new BottomNavBar.Item { label = ModesTabName, onClick = sheet.component.Open,
                                     screens = new[] { ScreenOf("COnversationbutton"), ScreenOf("Summary"), ScreenOf("Repeat"), ScreenOf("talk to lafka"),
-                                                     ScreenOf(ShortAnswerScreen.TabName) } },
+                                                     ScreenOf(ShortAnswerScreen.TabName), ScreenOf(KaraokeScreen.TabName) } },
         };
         var roots = Cards.Select(c => ScreenOf(c.tab)).Where(g => g != null).Select(g => g.transform.Find("Canvas/Root") as RectTransform);
         var nav = BottomNavBar.Create(mainCanvas, (RectTransform)tabs["Dairy"].transform, roots, font, items);

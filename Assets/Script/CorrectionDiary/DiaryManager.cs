@@ -162,6 +162,10 @@ public partial class DiaryManager : MonoBehaviour
         SetStatus("Idle");
     }
 
+    // この画面を開いたら、タブの「添削が終わった」● を消す
+    private void OnEnable() => TabBadge.Clear(TabName);
+    private const string TabName = "Dairy";
+
     // 話している最中にパネルが非表示にされたら、その日記は破棄して中断する
     // (停止後の添削中は、そのまま完了させる)
     private void OnDisable()
@@ -424,9 +428,13 @@ public partial class DiaryManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogException(e);
-            if (!SaveForLater(e))   // Gemini が混んでいたら、日記を残してあとで自動で送る
+            bool saved = SaveForLater(e);   // Gemini が混んでいたら、日記を残してあとで自動で送る
+            if (!saved)
                 SetStatus("Error: " + FirstLine(e.Message) +
                           (string.IsNullOrEmpty(_pendingText) ? "" : "  (You can retry the correction)"));
+            TabBadge.NotifyIfHidden(this, TabName, saved
+                ? "Diary: Gemini is busy — it will be corrected later"
+                : "Diary: could not correct — open Diary and tap Retry");
         }
         finally
         {
@@ -488,6 +496,7 @@ public partial class DiaryManager : MonoBehaviour
         NotifyReminderServerAsync();                          // 「今日は書いた」と Worker に連絡 (待たない)
         SaveDiaryToCloudAsync(text, corrected, explanation, mistakes);  // ログイン中なら、日記とミスをクラウドに保存 (待たない)
         SetStatus("Done");
+        TabBadge.NotifyIfHidden(this, TabName, "Diary: corrected");
 
         await SendToDiscordAsync();
     }

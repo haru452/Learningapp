@@ -18,6 +18,8 @@ public static class ScreenStyles
         Run("Diary", DiaryScreenStyle.Apply);
         Run("Topic", PracticeLayoutStyle.ApplyTopic);
         Run("Repeat", PracticeLayoutStyle.ApplyRepeat);
+        Run("Summary", PracticeLayoutStyle.ApplySummary);
+        Run("Login", LoginScreenStyle.Apply);
     }
 
     // 下のタブを使わない設定のときも動かす

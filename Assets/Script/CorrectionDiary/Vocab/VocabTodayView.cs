@@ -96,8 +96,8 @@ public partial class VocabTodayView
             _v.LevelPickButtons[i].onClick.AddListener(() => { VocabSettings.Level = level; ShowIdle(); });
         }
         if (_v.StartButton != null) _v.StartButton.onClick.AddListener(OnStartClicked);
-        if (_v.CardButton != null) _v.CardButton.onClick.AddListener(() => { if (VideosOpen) return; _flipped = !_flipped; Render(); });
-        if (_v.SoundButton != null) _v.SoundButton.onClick.AddListener(() => PlayModel(CurrentCard));
+        if (_v.CardButton != null) _v.CardButton.onClick.AddListener(OnCardTapped);
+        if (_v.SoundButton != null) _v.SoundButton.onClick.AddListener(OnSoundClicked);
         if (_v.SayButton != null) _v.SayButton.onClick.AddListener(OnSayClicked);
         if (_v.BackButton != null) _v.BackButton.onClick.AddListener(GoBack);
         if (_v.VideosButton != null)
@@ -148,6 +148,7 @@ public partial class VocabTodayView
     {
         _sayToken++;
         _ctx.Capture.Cancel();
+        StopListen();
         _ctx.Audio.Stop();
         _starting = false;
         if (_v.SayLabel != null) _v.SayLabel.text = "Say it";
@@ -163,6 +164,7 @@ public partial class VocabTodayView
         if (_mode != Mode.Card && _mode != Mode.Weak) return;
         _sayToken++;
         _ctx.Capture.Cancel();
+        StopListen();
         _ctx.Audio.Stop();
         if (_v.SayLabel != null) _v.SayLabel.text = "Say it";
         SetActive(_v.CardArea, false);
@@ -180,7 +182,7 @@ public partial class VocabTodayView
     private void ShowStatusForCard()
     {
         if (_mode == Mode.Weak) _ctx.SetStatus("Tap \"Say it\" and say the word.");
-        else _ctx.SetStatus(_note.Length > 0 ? _note : "Tap the card to see the meaning.");
+        else _ctx.SetStatus(_note.Length > 0 ? _note : _hidden ? "Listen, then tap the card to see the word." : "Tap the card to see the meaning.");
     }
 
     private void ShowIdle()
@@ -335,6 +337,8 @@ public partial class VocabTodayView
             _ctx.SetStatus(_note.Length > 0 ? _note : "Tap the card to see the meaning.");
         }
         if (_v.SayLabel != null) _v.SayLabel.text = "Say it";
+        StartListenFirst();
+        if (_mode == Mode.Card && _note.Length == 0) ShowStatusForCard();
         Render();
     }
 
@@ -346,7 +350,7 @@ public partial class VocabTodayView
         var c = CurrentCard;
         if (c == null) return;
         _dicts.TryGetValue(c.Word, out DictionaryResult dict);
-        if (_v.CardText != null) _v.CardText.text = _flipped ? BackText(c, dict) : FrontText(c, dict);
+        if (_v.CardText != null) _v.CardText.text = _flipped ? BackText(c, dict) : _hidden ? HiddenFrontText(c) : FrontText(c, dict);
 
         // Sound / Say it / Videos は表だけ。裏ではその場所に単語の画像を出す (表のうちに先に取っておく)
         SetActive(_v.SoundButton != null ? _v.SoundButton.transform.parent.gameObject : null, !_flipped);
@@ -433,6 +437,7 @@ public partial class VocabTodayView
 
     private async Task StartSayAsync()
     {
+        StopListen();
         _ctx.Audio.Stop();
         int token = _token, sayToken = _sayToken;
         var card = CurrentCard;
@@ -493,6 +498,7 @@ public partial class VocabTodayView
     {
         if (_mode != Mode.Card || _session == null || _session.Done || !_flipped || VideosOpen) return;
         _ctx.Capture.Cancel();
+        StopListen();
         _ctx.Audio.Stop();
         var card = _session.Current;
         var review = _session.Rate(rating, DateTime.UtcNow);
@@ -513,6 +519,7 @@ public partial class VocabTodayView
     {
         if (_mode != Mode.Card || _session == null || !_session.CanGoBack || _undo.Count == 0 || VideosOpen) return;
         _ctx.Capture.Cancel();
+        StopListen();
         _ctx.Audio.Stop();
         var (review, added) = _undo.Pop();
         var card = _session.Back();

@@ -34,6 +34,34 @@ public static class TabBadge
             ? "Shadowing: checked — " + score.Value + "%"
             : "Shadowing: could not check — open Repeat";
 
+    /// <summary>タブ (MainCanvas/Panel の下のボタン。隠れていても探す) の名前の文字</summary>
+    public static TMPro.TMP_Text FindTabLabel(string tabName)
+    {
+        foreach (var b in UnityEngine.Object.FindObjectsOfType<UnityEngine.UI.Button>(true))
+            if (b.name == tabName && b.transform.parent != null && b.transform.parent.name == "Panel")
+                return b.GetComponentInChildren<TMPro.TMP_Text>(true);
+        return null;
+    }
+
+    /// <summary>その画面を開いたら、タブの ● を消す</summary>
+    public static void Clear(string tabName)
+    {
+        var label = FindTabLabel(tabName);
+        if (label != null && Has(label.text)) label.text = Remove(label.text);
+    }
+
+    /// <summary>
+    /// 採点などを待つ間にほかの画面へ移っていたら、終わったことを知らせる:
+    /// タブに ● (下のタブ・Modes・カードに写る) と、トースト
+    /// </summary>
+    public static void NotifyIfHidden(UnityEngine.MonoBehaviour screen, string tabName, string message)
+    {
+        if (screen == null || screen.gameObject.activeInHierarchy) return;
+        var label = FindTabLabel(tabName);
+        if (label != null) label.text = Add(label.text);
+        ShowToast(message);
+    }
+
     /// <summary>Android でトーストを出す (ほかの環境ではログだけ)</summary>
     public static void ShowToast(string message)
     {

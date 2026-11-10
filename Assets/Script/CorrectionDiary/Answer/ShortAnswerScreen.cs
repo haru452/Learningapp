@@ -50,7 +50,10 @@ public partial class ShortAnswerScreen : MonoBehaviour
         _player = gameObject.AddComponent<RepeatAudioPlayer>();
         _player.Configure(string.IsNullOrWhiteSpace(ttsKey) ? null : new GeminiApiClient(ttsKey, "gemini-3.8-flash", null, backups),
                           TtsModel, TtsVoice);
-        _stt = FindObjectsOfType<NativeSpeechRecognizer>(true).FirstOrDefault();   // 全画面で 1 つを共有する
+        // ほかの画面のものは借りない: 認識結果は付いている GameObject の Update() で処理されるので、
+        // 隠れた画面のものを使うと答えても結果が届かない (Summary・Topic と同じく自分用を持つ)
+        _stt = GetComponent<NativeSpeechRecognizer>();
+        if (_stt == null) _stt = gameObject.AddComponent<NativeSpeechRecognizer>();
         _supabase = FindObjectOfType<SupabaseService>(true);
         if (_stt != null)
         {

@@ -50,6 +50,15 @@ public class VocabAudio : MonoBehaviour
         await _deviceTts.SpeakAsync(word ?? "", ct);
     }
 
+    /// <summary>例文などの文を端末の読み上げで流して、終わるまで待つ</summary>
+    public async Task PlaySentenceAsync(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        Stop();
+        _deviceTts.SetVoiceStyle(1f, 0.9f);
+        await _deviceTts.SpeakAsync(text, ct);
+    }
+
     /// <summary>録音などの AudioClip を流して、終わるまで待つ</summary>
     public async Task PlayClipAsync(AudioClip clip, CancellationToken ct)
     {

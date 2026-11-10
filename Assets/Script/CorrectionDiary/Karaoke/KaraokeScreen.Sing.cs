@@ -165,7 +165,7 @@ public partial class KaraokeScreen
         _pendingWavs = wavs;
         _pendingLines = chunkLines;
         _state = State.Checking;
-        _status = "Checking your pronunciation... (this can take a minute)";
+        _status = "Checking your pronunciation... (this can take a minute). You can use other tabs; the result will be here.";
         Render();
         var gemini = KaraokeResults.CreateGemini();
         DateTime takenAt = DateTime.UtcNow;
@@ -180,6 +180,7 @@ public partial class KaraokeScreen
             _state = State.Result;
             _status = "Saving...";
             Render();
+            NotifyIfHidden("Karaoke: checked — " + _result.Score + " / 100");
             bool sent = await KaraokeResults.SaveAsync(_song.Title, _song.Artist, _chosenVideo.id, _result.Score, check, takenAt);
             if (token == _token && _state == State.Result) { _status = sent ? "Saved and sent to Discord." : "Saved."; Render(); }
         }
@@ -194,11 +195,13 @@ public partial class KaraokeScreen
                 _result = null;
                 _state = State.Ready;
                 _status = DiaryManager.SavedForLaterMessage;
+                NotifyIfHidden("Karaoke: busy — it will be checked later");
             }
             else
             {
                 _state = State.Result;   // 結果の画面の「Check again」で送り直す
                 _status = "Could not check (" + FirstLine(e.Message) + "). Tap \"Check again\".";
+                NotifyIfHidden("Karaoke: could not check — open Karaoke and tap Check again");
             }
             Render();
         }

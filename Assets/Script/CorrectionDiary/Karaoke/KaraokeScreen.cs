@@ -44,7 +44,20 @@ public partial class KaraokeScreen : MonoBehaviour
         _video.OnError += e => _videoError = e;
     }
 
-    private void OnEnable() => Render();
+    // 開いたら、タブの「採点が終わった」● を消す
+    private void OnEnable()
+    {
+        if (_tabLabel != null && TabBadge.Has(_tabLabel.text)) _tabLabel.text = TabBadge.Remove(_tabLabel.text);
+        Render();
+    }
+
+    /// <summary>採点を待つ間にほかの画面へ移っていたら、終わったことを知らせる (Modes とカードに ●・トースト)</summary>
+    private void NotifyIfHidden(string message)
+    {
+        if (this == null || gameObject.activeInHierarchy) return;
+        if (_tabLabel != null) _tabLabel.text = TabBadge.Add(_tabLabel.text);
+        TabBadge.ShowToast(message);
+    }
 
     // 画面を閉じたら、動画・録音・再生を止める。歌っている途中なら、その回は捨てる。探している途中ならやめる。
     // 採点中はそのまま続けて保存する (戻ってきたら結果が出ている)

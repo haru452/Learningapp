@@ -175,6 +175,10 @@ public partial class SummaryPracticeManager : MonoBehaviour
         SetStatus("Tap \"New Video\" to start.");
     }
 
+    // この画面を開いたら、タブの「採点が終わった」● を消す
+    private void OnEnable() => TabBadge.Clear(TabName);
+    private const string TabName = "Summary";
+
     // パネルが非表示にされたら、視聴・要約の途中なら中断する (採点中はそのまま完了させる)
     private void OnDisable()
     {

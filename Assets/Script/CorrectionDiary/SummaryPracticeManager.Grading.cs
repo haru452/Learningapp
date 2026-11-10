@@ -86,6 +86,7 @@ public partial class SummaryPracticeManager
             ShowGrade(grade);
             SaveResultToCloudAsync(_video, grade);   // ログイン中なら保存 (待たない)
             CountAsStudyDay();                       // 要約練習をした日も、連続記録に数える
+            TabBadge.NotifyIfHidden(this, TabName, "Summary: graded — " + grade.score + " / 100");
 
             string discordError = await SendToDiscordAsync(_video, grade);
             SetState(State.Idle);
@@ -99,6 +100,9 @@ public partial class SummaryPracticeManager
             bool saved = SaveForLater(e);   // Gemini が混んでいたら、答えを残してあとで自動で送る
             SetState(State.Idle);   // 残せなかったときは _pending* が残っているので、メインボタンが「Retry Grading」になる
             if (!saved) SetStatus("Error: " + FirstLine(e.Message) + "  (You can retry the grading)");
+            TabBadge.NotifyIfHidden(this, TabName, saved
+                ? "Summary: Gemini is busy — it will be graded later"
+                : "Summary: grading failed — open Summary and tap Retry Grading");
         }
         finally
         {

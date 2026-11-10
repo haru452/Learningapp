@@ -111,7 +111,8 @@ public static class UiStyle
     /// <summary>ふつうのボタン: 明るい紺に白い文字</summary>
     public static void Secondary(Button b) => Button(b, UiTheme.SurfaceRaised, UiTheme.Text);
 
-    public static void Button(Button b, Color background, Color label)
+    /// <param name="keepTextSize">true: 文字の大きさは変えない (倍率をかけて表示する画面で使う)</param>
+    public static void Button(Button b, Color background, Color label, bool keepTextSize = false)
     {
         if (b == null) return;
         Surface(b.gameObject, background);
@@ -128,6 +129,7 @@ public static class UiStyle
         {
             t.color = label;
             t.fontStyle = FontStyles.Bold;
+            if (keepTextSize) continue;
             t.enableAutoSizing = false;
             t.fontSize = UiTheme.BodySize;
             t.alignment = TextAlignmentOptions.Center;

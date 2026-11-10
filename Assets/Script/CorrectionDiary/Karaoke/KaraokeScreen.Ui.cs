@@ -12,6 +12,8 @@ public partial class KaraokeScreen
     public const string ScreenName = "karaoke screen";
     public const string TabName = "Karaoke";
     private const string MissColor = "#F87171";   // UiTheme.Danger
+    private const float LyricNowSize = 52f;    // 今の行
+    private const float LyricSideSize = 40f;   // 前の行・次の行 (歌いながらでも読めるように大きめ)
 
     private TMP_FontAsset _font;
     private TMP_InputField _input;
@@ -23,6 +25,7 @@ public partial class KaraokeScreen
     private string _status = "Type a song title and tap Search.";
     private State _listShownFor = State.Idle;
     private List<Button> _otherTabs = new List<Button>();
+    private TMP_Text _tabLabel;   // 隠れたタブの文字 (ほかの画面にいる間に採点が終わったら ● を付ける)
 
     /// <summary>画面と隠れたタブを作る (ModesNav が下のタブを作る前に 1 回)</summary>
     public static void Install()
@@ -42,6 +45,7 @@ public partial class KaraokeScreen
         var tab = Object.Instantiate(someTab.gameObject, panel, false);
         tab.name = TabName;
         var button = tab.GetComponent<Button>();
+        screen._tabLabel = tab.GetComponentInChildren<TMP_Text>(true);
         button.onClick = new Button.ButtonClickedEvent();
         button.onClick.AddListener(screen.Open);
         screen._otherTabs = panel.GetComponentsInChildren<Button>(true).Where(b => b != button).ToList();
@@ -107,9 +111,9 @@ public partial class KaraokeScreen
         _lyricsCard = UiStyle.NewUi("Lyrics", root);
         UiStyle.Surface(_lyricsCard, UiTheme.Surface, outline: true);
         UiStyle.Column(_lyricsCard, 32, 12);
-        _prevText = UiStyle.NewText("Prev", _lyricsCard.transform, font, "", UiTheme.CaptionSize, UiTheme.SubText);
-        _currentText = UiStyle.NewText("Current", _lyricsCard.transform, font, "", UiTheme.HeadingSize, UiTheme.Primary, FontStyles.Bold);
-        _nextText = UiStyle.NewText("Next", _lyricsCard.transform, font, "", UiTheme.BodySize, UiTheme.SubText);
+        _prevText = UiStyle.NewText("Prev", _lyricsCard.transform, font, "", LyricSideSize, UiTheme.SubText);
+        _currentText = UiStyle.NewText("Current", _lyricsCard.transform, font, "", LyricNowSize, UiTheme.Primary, FontStyles.Bold);
+        _nextText = UiStyle.NewText("Next", _lyricsCard.transform, font, "", LyricSideSize, UiTheme.Text);
 
         // 歌詞のずれを直す
         _offsetRow = UiStyle.NewUi("OffsetRow", root);

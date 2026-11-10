@@ -39,6 +39,19 @@ public static class PracticeLayoutStyle
         Text(root, "CreditText", 22f, UiTheme.SubText);
     }
 
+    /// <summary>Summary も Topic と同じ作り。前はボタンが黒に近い灰色で見えにくかった</summary>
+    public static void ApplySummary()
+    {
+        var root = RootOf("summary screen");
+        if (root == null) return;
+        Common(root);
+        Primary(root, "MainButton");
+        Secondary(root, "SkipButton");
+        Text(root, "VideoTitleText", UiTheme.HeadingSize, UiTheme.Text, FontStyles.Bold);
+        Text(root, "TimerText", 80f, UiTheme.Primary, FontStyles.Bold);
+        Text(root, "StatusText", 30f, UiTheme.SubText);
+    }
+
     private static Transform RootOf(string screenName)
     {
         var screen = UiStyle.Find(screenName);
