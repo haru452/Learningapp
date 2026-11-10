@@ -37,4 +37,15 @@ public static class ShadowScorer
             : (int)Math.Round(scores.Average(x => x.Accuracy), MidpointRounding.AwayFromZero);
         return (scores, empty ? 0 : average, empty);
     }
+
+    private const int HeardNoteMaxWords = 8;
+
+    /// <summary>赤い語のあとに出す「代わりに聞こえた語」。何も聞こえなければ null。長ければ 8 語で切る</summary>
+    public static string HeardNote(string heard)
+    {
+        if (string.IsNullOrWhiteSpace(heard)) return null;
+        var words = heard.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+        return words.Length <= HeardNoteMaxWords ? string.Join(" ", words)
+            : string.Join(" ", words.Take(HeardNoteMaxWords)) + " …";
+    }
 }

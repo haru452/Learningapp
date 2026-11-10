@@ -24,11 +24,11 @@ public class BottomNavBar : MonoBehaviour
     }
 
     private const float BarHeight = 150f;
-    private static readonly Color BarColor = ModesNav.Hex("#0B0F1A", 0.98f);
-    private static readonly Color LineColor = ModesNav.Hex("#22D3EE", 0.18f);
-    private static readonly Color SelectedBg = ModesNav.Hex("#1F2440");
+    private static readonly Color BarColor = new Color(UiTheme.Background.r, UiTheme.Background.g, UiTheme.Background.b, 0.98f);
+    private static readonly Color LineColor = UiTheme.Divider;
+    private static readonly Color SelectedBg = UiTheme.SurfaceRaised;
     private static readonly Color SelectedText = Color.white;
-    private static readonly Color NormalText = ModesNav.Hex("#9CA3AF");
+    private static readonly Color NormalText = UiTheme.SubText;
 
     private GameObject _bar;
     private GameObject _mainCanvas;

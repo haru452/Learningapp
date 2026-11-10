@@ -9,6 +9,7 @@ public class VocabSession
 {
     private readonly List<VocabCard> _cards;
     private readonly double _retention;
+    private readonly Stack<VocabCard> _before = new Stack<VocabCard>();   // 評価する前の予定 (戻るときに使う)
 
     public VocabSession(List<VocabCard> cards, double retention)
     {
@@ -22,12 +23,26 @@ public class VocabSession
     public VocabCard Current => Done ? null : _cards[Index];
     public IReadOnlyList<VocabCard> Cards => _cards;
 
+    /// <summary>前の単語に戻れるか (この回で 1 つ以上評価していて、まだ最後まで行っていない)</summary>
+    public bool CanGoBack => Index > 0 && !Done && _before.Count > 0;
+
+    /// <summary>直前の評価を取り消して、その単語に戻る (予定も評価する前に戻す)。戻れなければ null</summary>
+    public VocabCard Back()
+    {
+        if (!CanGoBack) return null;
+        Index--;
+        var c = _cards[Index];
+        c.RestoreSchedule(_before.Pop());
+        return c;
+    }
+
     /// <summary>今のカードを評価してカードを書き換え、次へ進む。履歴の 1 行を返す</summary>
     public VocabReview Rate(int rating, DateTime nowUtc)
     {
         var c = Current;
         if (c == null) throw new InvalidOperationException("session is done");
         int g = Math.Min(4, Math.Max(1, rating));
+        _before.Push(c.ScheduleCopy());
         bool isNew = c.Reps == 0;
         double elapsed = Elapsed(c, nowUtc);
         var m = isNew ? Fsrs.First(g) : Fsrs.Next(new FsrsMemory { Stability = c.Stability, Difficulty = c.Difficulty }, g, elapsed);

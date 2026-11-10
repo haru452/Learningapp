@@ -108,6 +108,7 @@ public partial class ConversationController
 
     void OnGUI()
     {
+        if (ModesSheet.AnyOpen) return;   // Modes のシートの上に重ならないように
         int fontSize = Mathf.Max(20, Screen.height / 60);
         var label = new GUIStyle(GUI.skin.label) { fontSize = fontSize, wordWrap = true };
         var button = new GUIStyle(GUI.skin.button) { fontSize = fontSize + 2 };

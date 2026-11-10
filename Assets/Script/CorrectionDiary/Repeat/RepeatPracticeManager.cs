@@ -120,7 +120,7 @@ public partial class RepeatPracticeManager : MonoBehaviour
     {
         mainButton.onClick.AddListener(OnMainClicked);
         if (againButton != null) againButton.onClick.AddListener(() => { if (ShadowMode) _shadow.OnAgain(); else _ = ReplayAsync(false); });
-        if (slowButton != null) slowButton.onClick.AddListener(() => { if (!ShadowMode) _ = ReplayAsync(true); });
+        if (slowButton != null) slowButton.onClick.AddListener(() => { if (ShadowMode) _shadow.OnBack(); else _ = ReplayAsync(true); });
         if (speakButton != null) speakButton.onClick.AddListener(OnSpeakClicked);
         nativeStt.OnPartialResult += OnNativePartial;
         nativeStt.OnSessionEnded += OnNativeSessionEnded;
@@ -154,7 +154,35 @@ public partial class RepeatPracticeManager : MonoBehaviour
             () => { var d = FindDiary(); if (d != null) d.CountOtherPracticeAsStudyDay(); });
         _shadowUi.Changed += ApplyMode;
         _shadow.StateChanged += RefreshModeButtons;
+        _shadow.CheckFinished += NotifyIfHidden;
         ApplyMode();
+    }
+
+    // この画面を開いたら、タブの「判定が終わった」印を消す
+    private void OnEnable()
+    {
+        var label = FindTabLabel();
+        if (label != null && TabBadge.Has(label.text)) label.text = TabBadge.Remove(label.text);
+    }
+
+    private TMP_Text _tabLabel;
+
+    private TMP_Text FindTabLabel()
+    {
+        if (_tabLabel != null) return _tabLabel;
+        var tab = FindObjectsOfType<Button>(true)
+            .FirstOrDefault(b => b.name == "Repeat" && b.gameObject.scene == gameObject.scene);
+        _tabLabel = tab != null ? tab.GetComponentInChildren<TMP_Text>(true) : null;
+        return _tabLabel;
+    }
+
+    /// <summary>判定を待つ間にほかの画面へ移っていたら、終わったことを知らせる (Repeat のタブに ●・トースト)</summary>
+    private void NotifyIfHidden(int? score)
+    {
+        if (this == null || gameObject.activeInHierarchy) return;
+        var label = FindTabLabel();
+        if (label != null) label.text = TabBadge.Add(label.text);
+        TabBadge.ShowToast(TabBadge.ShadowMessage(score));
     }
 
     // Shadowing のオン・オフ (切り替えられるのは練習していないときだけ)
@@ -209,10 +237,11 @@ public partial class RepeatPracticeManager : MonoBehaviour
         _cts?.Cancel();
     }
 
-    // ほかのタブへ移ったら止める (まとめまで行った結果の保存は続ける)
+    // ほかのタブへ移ったら止める (まとめまで行った結果の保存は続ける)。
+    // シャドーイングの判定中は止めずに続け、終わったらタブの ● とトーストで知らせる
     private void OnDisable()
     {
-        if (ShadowMode) { _shadow.Cancel(); return; }
+        if (ShadowMode) { if (!_shadow.IsChecking) _shadow.Cancel(); return; }
         if (_state == State.Idle || _state == State.Summary) return;
         _cts?.Cancel();
         player?.Stop();
@@ -460,7 +489,6 @@ public partial class RepeatPracticeManager : MonoBehaviour
     private async Task<string> StopListeningAndGetTextAsync()
     {
         _listening = false;
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
         if (_useNative)
         {
             if (nativeStt.IsListening)
@@ -486,7 +514,6 @@ public partial class RepeatPracticeManager : MonoBehaviour
         _stopping = false;
         if (nativeStt != null && nativeStt.IsListening) nativeStt.Cancel();
         if (recorder != null && recorder.IsRecording) recorder.StopRecording();
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
     }
 
 }

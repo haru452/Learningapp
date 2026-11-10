@@ -222,32 +222,7 @@ public partial class TopicPracticeManager : MonoBehaviour
         if (this == null || gameObject.activeInHierarchy) return;
         var label = FindTabLabel();
         if (label != null) label.text = TabBadge.Add(label.text);
-        ShowToast(TabBadge.Message(score));
-    }
-
-    private static void ShowToast(string message)
-    {
-#if UNITY_ANDROID && !UNITY_EDITOR
-        try
-        {
-            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-            {
-                var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
-                activity.Call("runOnUiThread", new AndroidJavaRunnable(() =>
-                {
-                    using (var toast = new AndroidJavaClass("android.widget.Toast"))
-                    using (var t = toast.CallStatic<AndroidJavaObject>("makeText", activity, message, 1))   // 1 = LENGTH_LONG
-                        t.Call("show");
-                }));
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning("[TopicPractice] could not show a toast: " + e.Message);
-        }
-#else
-        Debug.Log("[TopicPractice] " + message);
-#endif
+        TabBadge.ShowToast(TabBadge.Message(score));
     }
 
     private void OnDisable()
@@ -281,7 +256,6 @@ public partial class TopicPracticeManager : MonoBehaviour
             nativeStt.OnSessionEnded -= OnNativeSessionEnded;
             if (nativeStt.IsListening) nativeStt.Cancel();
         }
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
     }
 
     private void Update()
@@ -500,7 +474,6 @@ public partial class TopicPracticeManager : MonoBehaviour
     private async Task<string> StopListeningAndGetTextAsync()
     {
         _listening = false;
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
 
         if (_useNative)
         {

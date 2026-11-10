@@ -25,9 +25,13 @@ public class ShadowSession
     private const int ExtraRecordSeconds = 30;
     private const float EndTailSeconds = 2f;
     private const float PlayWaitSeconds = 60f;   // ▶ を押してもらうのを待つ
+    private const int RewindExtraSeconds = 300;  // Back 10s で戻した分、録音を長く続けられる (30 回分)
+    private ShadowRewind _rewind;
+    private float _recordStart;
     private const int MissedThreshold = 80;
     private const string MatchColor = "#40c057";
     private const string MissColor = "#fa5252";
+    private const string HeardColor = "#9aa0a6";   // 代わりに聞こえた語 (灰色)
 
     /// <summary>RepeatPracticeManager の画面の部品</summary>
     public class View
@@ -44,7 +48,11 @@ public class ShadowSession
     public bool CanSwitchMode => Current == State.Idle || Current == State.Summary;
     public bool IsRunning => Current != State.Idle && Current != State.Summary;
     public bool IsPlayingVideo => Current == State.WaitingToPlay || Current == State.Shadowing;
+    /// <summary>判定中 (書き起こし・アドバイス)。ほかのタブへ移っても止めない</summary>
+    public bool IsChecking => Current == State.Checking;
     public event Action StateChanged;
+    /// <summary>判定が終わった (平均の %。失敗・何も聞こえなかったときは null)</summary>
+    public event Action<int?> CheckFinished;
 
     private readonly View _v;
     private readonly RepeatAudioPlayer _audio;
@@ -126,6 +134,17 @@ public class ShadowSession
         else if (Current == State.WaitingToPlay || Current == State.Preparing) Cancel("Stopped. Tap \"Start\" to try again.");
     }
 
+    /// <summary>Back 10s: 動画を 10 秒戻し、その分の録音を捨てて言い直す</summary>
+    public void OnBack()
+    {
+        if (Current != State.Shadowing || _rewind == null) return;
+        double back = _rewind.Rewind(Time.realtimeSinceStartup - _recordStart);
+        if (back < 0.1) return;
+        _video.SeekBy(-back);
+        _videoTime = Math.Max(0, _videoTime - back);
+        _ended = false;
+    }
+
     public async void OnAgain()   // My voice / Check again
     {
         if (Current == State.Idle && _pending != null) { await RecheckAsync(); return; }
@@ -153,7 +172,6 @@ public class ShadowSession
         _video.Hide();
         if (_recorder.IsRecording) _recorder.StopRecording();
         _recorder.MaxSeconds = 60;
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
         SetLoading(false);
         ShowIdle(status);
     }
@@ -259,6 +277,8 @@ public class ShadowSession
         byte[] wav;
         double recorded;
         int maxSeconds = video.durationSeconds + ExtraRecordSeconds;
+        int recordLimit = maxSeconds + RewindExtraSeconds;   // 戻した分も録れるように、録音の器は長めに
+        _rewind = new ShadowRewind();
         try
         {
             _playing = _ended = _stopRequested = false;
@@ -280,23 +300,29 @@ public class ShadowSession
                 await Task.Yield();
             }
 
-            _recorder.MaxSeconds = maxSeconds;
+            _recorder.MaxSeconds = recordLimit;
             if (!_recorder.StartRecording()) throw new Exception("could not start the microphone");
-            float start = Time.realtimeSinceStartup;
+            _recordStart = Time.realtimeSinceStartup;
             SetState(State.Shadowing);
             float endAt = float.MaxValue;
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                float elapsed = Time.realtimeSinceStartup - start;
-                if (_ended && endAt == float.MaxValue) endAt = elapsed + EndTailSeconds;
-                if (_stopRequested || elapsed >= endAt || elapsed >= maxSeconds - 0.5f) break;
-                SetStatus("Shadowing... " + YouTubeSearchClient.FormatDuration((int)elapsed) + " / " +
-                          YouTubeSearchClient.FormatDuration(video.durationSeconds) + "\n<size=70%>Tap \"Stop\" to finish early.</size>");
+                float elapsed = Time.realtimeSinceStartup - _recordStart;
+                double kept = _rewind.KeptSeconds(elapsed);   // 戻した分を除いた長さ (= 動画の位置)
+                if (!_ended) endAt = float.MaxValue;          // 終わったあとに Back 10s で戻した
+                else if (endAt == float.MaxValue) endAt = elapsed + EndTailSeconds;
+                if (_stopRequested || elapsed >= endAt || kept >= maxSeconds - 0.5f || elapsed >= recordLimit - 0.5f) break;
+                SetStatus("Shadowing... " + YouTubeSearchClient.FormatDuration((int)kept) + " / " +
+                          YouTubeSearchClient.FormatDuration(video.durationSeconds) +
+                          (_rewind.Count > 0 ? "  (back " + _rewind.Count + "x)" : "") +
+                          "\n<size=70%>\"Back 10s\" to redo the last part. \"Stop\" to finish early.</size>");
                 await Task.Yield();
             }
-            recorded = Time.realtimeSinceStartup - start;
+            double rawSeconds = Time.realtimeSinceStartup - _recordStart;
             wav = _recorder.IsRecording ? _recorder.StopRecording() : null;
+            wav = ShadowRewind.Cut(wav, _rewind);   // 戻して言い直した所は、新しい録音だけを使う
+            recorded = _rewind.KeptSeconds(rawSeconds);
         }
         catch (OperationCanceledException) { return; }
         catch (Exception e)
@@ -311,7 +337,6 @@ public class ShadowSession
         finally
         {
             _recorder.MaxSeconds = 60;
-            Screen.sleepTimeout = SleepTimeout.SystemSetting;
         }
         _video.Hide();
         _v.Ui.ShowVideo(false);
@@ -362,6 +387,7 @@ public class ShadowSession
             SetLoading(false);
             ShowIdle("Could not check your voice (" + Escape(FirstLine(e.Message)) + ").\n" +
                      "Tap \"Check again\" to try without recording again.");
+            CheckFinished?.Invoke(null);
             return;
         }
 
@@ -374,6 +400,7 @@ public class ShadowSession
             _pending = null;
             SetLoading(false);
             ShowIdle(NotHeardMessage);
+            CheckFinished?.Invoke(null);
             return;
         }
 
@@ -400,13 +427,19 @@ public class ShadowSession
         foreach (var s in scores)
         {
             foreach (var w in s.Words)
+            {
                 sb.Append("<color=").Append(w.Matched ? MatchColor : MissColor).Append('>').Append(Escape(w.Text)).Append("</color> ");
+                string heard = ShadowScorer.HeardNote(w.Heard);   // 間違えた所で、代わりに聞こえた語
+                if (heard != null)
+                    sb.Append("<size=80%><color=").Append(HeardColor).Append(">(heard: ").Append(Escape(heard)).Append(")</color></size> ");
+            }
             sb.Append(" <b>").Append(s.Accuracy).Append("%</b>\n\n");
         }
         SetText(_v.Header, "Summary - " + Escape(video.title));
         SetText(_v.Result, sb.ToString().TrimEnd());
         SetState(State.Summary);
         SetStatus("Saving...");
+        CheckFinished?.Invoke(average);
 
         // Web には点数だけ (1 回 = 1 行)
         var results = new List<RepeatResult>
@@ -461,7 +494,7 @@ public class ShadowSession
                   recheck ? "Check again" : "My voice");
         if (_v.Sentence != null) _v.Sentence.gameObject.SetActive(false);   // シャドーイングでは使わない (場所を空ける)
         _v.Ui.SetSearchVisible(idle);
-        if (_v.SlowButton != null) _v.SlowButton.gameObject.SetActive(false);
+        SetButton(_v.SlowButton, s == State.Shadowing, "Back 10s");   // リピーティングの Slow を使う
         _v.Ui.SetInteractable(idle);
         StateChanged?.Invoke();
     }

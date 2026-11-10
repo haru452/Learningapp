@@ -5,8 +5,8 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 単語帳の画面の見た目を、Stitch のデザイン (Acoustic Intelligence: 濃い紺・インディゴ・シアン) に寄せる。
-/// 背景は ほかの画面と同じ半透明の灰色のままにして、カード・ボタン・タブだけ新しい色にする。
+/// 単語帳の画面の見た目を、アプリ共通の決まり (UiTheme: 濃い紺 + 水色) にそろえる。
+/// 背景は紺、カードと一覧は一段明るい紺、主なボタン (Start・Say it) は水色に濃い文字、ほかのボタンは紺に白い文字。
 /// 名前で探すので、VocabScreenBuilder で付けた名前を変えたらここも直す。
 /// 何度実行しても同じ結果になる (Tools → Vocabulary → Update Vocabulary Screen から呼ばれる)。
 /// </summary>
@@ -14,12 +14,12 @@ public static class VocabStyler
 {
     private const string UndoName = "Style Vocabulary Screen";
 
-    private static readonly Color Card = Hex("#111827", 0.95f);       // カード・一覧
-    private static readonly Color Raised = Hex("#1F2937");             // ふつうのボタン
-    private static readonly Color TabTrack = Hex("#171B26");           // タブの土台 (選ばれていない時の色と同じ)
-    private static readonly Color Indigo = Hex("#4F46E5");             // 主なボタン
-    private static readonly Color Cyan = Hex("#06B6D4");
-    private static readonly Color Sheet = Hex("#1E2235", 0.98f);       // ダイアログ
+    private static readonly Color Card = UiTheme.Surface;              // カード・一覧
+    private static readonly Color Raised = UiTheme.SurfaceRaised;      // ふつうのボタン
+    private static readonly Color TabTrack = UiTheme.Surface;          // タブの土台 (選ばれていない時の色と同じ)
+    private static readonly Color Primary = UiTheme.Primary;           // 主なボタン (水色)
+    private static readonly Color Cyan = UiTheme.Primary;
+    private static readonly Color Sheet = UiTheme.Sheet;               // ダイアログ
 
     private static Sprite _round;
 
@@ -33,11 +33,12 @@ public static class VocabStyler
         {
             string name = t.name;
             string parent = t.parent != null ? t.parent.name : "";
-            if (name == "Card") n += Panel(t, Card, outline: true);
+            if (name == "Background" && parent == "Canvas") n += Plain(t, UiTheme.Background);
+            else if (name == "Card") n += Panel(t, Card, outline: true);
             else if (name == "SummaryScroll" || name == "WordList") n += Panel(t, Card, outline: false);
             else if (name == "Dialog") n += Panel(t, Sheet, outline: true);
             else if (name == "SubTabs") n += Track(t);
-            else if (name == "StartButton" || name == "SayButton") n += Fill(t, Indigo);
+            else if (name == "StartButton" || name == "SayButton") n += Fill(t, Primary, UiTheme.OnPrimary);
             else if (name == "SoundButton") n += Fill(t, Raised);
             else if (name == "Rating1") n += Fill(t, Hex("#9F1D3A"));   // Didn't know
             else if (name == "Rating2") n += Fill(t, Hex("#92600A"));   // Hard
@@ -46,7 +47,38 @@ public static class VocabStyler
             else if (t.GetComponent<Button>() != null && parent != "SubTabs" && parent != "RatingRow") n += Fill(t, Raised);
         }
         n += AddProgressBar(screen);
+        n += Texts(screen);
         return n;
+    }
+
+    // ボタンの外の文字: 見出しは白、説明は灰色。小さすぎる文字は CaptionSize まで上げる
+    private static int Texts(GameObject screen)
+    {
+        int n = 0;
+        var lists = screen.GetComponentsInChildren<Transform>(true).Where(t => t.name == "SummaryScroll" || t.name == "WordList").ToList();
+        foreach (var text in screen.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text.GetComponentInParent<Button>(true) != null) continue;
+            string name = text.name;
+            // カードの文と、まとめ・単語の一覧の行は、VocabTodayView / VocabWordsView が色を付けるので触らない
+            if (name == "CardText" || lists.Any(l => text.transform.IsChildOf(l))) continue;
+            Undo.RecordObject(text, UndoName);
+            text.color = name == "HeaderText" || name.EndsWith("Title") ? UiTheme.Text : UiTheme.SubText;
+            if (name == "HeaderText") { text.fontSize = UiTheme.HeadingSize; text.fontStyle = FontStyles.Bold; }
+            if (text.enableAutoSizing) text.fontSizeMin = Mathf.Max(text.fontSizeMin, UiTheme.CaptionSize - 4);
+            else if (text.fontSize < UiTheme.CaptionSize) text.fontSize = UiTheme.CaptionSize;
+            n++;
+        }
+        return n;
+    }
+
+    private static int Plain(Transform t, Color color)
+    {
+        var image = t.GetComponent<Image>();
+        if (image == null) return 0;
+        Undo.RecordObject(image, UndoName);
+        image.color = color;
+        return 1;
     }
 
     private static int Panel(Transform t, Color color, bool outline)
@@ -92,7 +124,9 @@ public static class VocabStyler
         return n;
     }
 
-    private static int Fill(Transform t, Color color)
+    private static int Fill(Transform t, Color color) => Fill(t, color, UiTheme.Text);
+
+    private static int Fill(Transform t, Color color, Color labelColor)
     {
         var image = t.GetComponent<Image>();
         if (image == null) return 0;
@@ -103,9 +137,17 @@ public static class VocabStyler
         var button = t.GetComponent<Button>();
         if (button != null)
         {
+            Undo.RecordObject(button, UndoName);
             var colors = button.colors;
-            colors.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f);
+            colors.pressedColor = new Color(0.75f, 0.75f, 0.75f, 1f);   // 押したら少し暗く (大きさは変えない)
+            colors.disabledColor = new Color(0.6f, 0.6f, 0.6f, 0.5f);
+            colors.fadeDuration = 0.08f;
             button.colors = colors;
+            foreach (var label in t.GetComponentsInChildren<TMP_Text>(true))
+            {
+                Undo.RecordObject(label, UndoName);
+                label.color = labelColor;
+            }
         }
         return 1;
     }

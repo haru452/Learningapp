@@ -85,7 +85,7 @@ public partial class VocabTodayView
     private async Task ScoreAsync()
     {
         if (_scoring || _session == null) return;
-        var words = _recs.Keys.Where(w => !_gemini.ContainsKey(w)).Take(GeminiApiClient.MaxVocabWords).ToList();
+        var words = _recs.Keys.Where(w => !_gemini.ContainsKey(w) && !_savedForLater.Contains(w)).Take(GeminiApiClient.MaxVocabWords).ToList();
         if (words.Count == 0) return;
         if (_ctx.Gemini == null) { _ctx.SetStatus("No Gemini key, so no pronunciation advice."); return; }
         int token = _token;
@@ -106,6 +106,7 @@ public partial class VocabTodayView
                 VocabStore.DeleteRecording(r.Word);   // 採点が済んだ録音は消す (My voice 用にメモリには残す)
             }
             _ctx.SaveDeck();
+            _ = SavePronLogsAsync(results);   // 苦手な音があった単語を Web で見られるように残す
             // Gemini が返さなかった単語があれば、[Score again] でその単語だけもう一度
             int missing = words.Count(w => !_gemini.ContainsKey(w));
             _geminiFailed = missing > 0;
@@ -117,6 +118,7 @@ public partial class VocabTodayView
         {
             if (token != _token) return;
             Debug.LogWarning("[Vocab] Gemini pronunciation check failed: " + e.Message);
+            if (SaveForLater(e, words)) return;   // Gemini が混んでいたら、録音を残してあとで自動で送る
             _geminiFailed = true;
             _ctx.SetStatus("Could not check the pronunciation. Tap \"Score again\".");
         }
@@ -131,6 +133,45 @@ public partial class VocabTodayView
                     RefreshSummaryButtons();
                 }
             }
+        }
+    }
+
+    // あとで送ると決めた単語 (Score again では送らない)。回が変わったら空にする
+    private readonly HashSet<string> _savedForLater = new HashSet<string>();
+
+    // Gemini が混んでいたら、その回の録音を端末に残してあとで自動で送る (GeminiLater)。残せたら true
+    private bool SaveForLater(Exception e, List<string> words)
+    {
+        if (!GeminiLater.IsBusy(e) || words == null || words.Count == 0) return false;
+        var job = new GeminiLater.Job
+        {
+            kind = GeminiLater.Vocab,
+            model = _ctx.Gemini.Model,
+            fallbackModel = _ctx.Gemini.FallbackModel,
+            words = new List<string>(words),
+            heardWords = words.Where(_heard.ContainsKey).ToList(),
+        };
+        job.heardTexts = job.heardWords.Select(w => _heard[w]).ToList();
+        if (!GeminiLater.Add(job, words.Select(w => _recs[w]).ToList())) return false;
+        foreach (var w in words) _savedForLater.Add(w);
+        _geminiFailed = false;
+        _ctx.SetStatus(DiaryManager.SavedForLaterMessage);
+        return true;
+    }
+
+    // 苦手な音 (th・R と L など) があった単語を 1 回ずつクラウドに残す (失敗は Console だけ)
+    private async Task SavePronLogsAsync(List<GeminiApiClient.WordPronResult> results)
+    {
+        var supabase = _ctx.Supabase;
+        if (supabase == null || !supabase.IsConfigured) return;
+        try
+        {
+            if (!await supabase.EnsureSignedInAsync()) return;
+            await supabase.SaveVocabPronLogsAsync(results, new Dictionary<string, string>(_heard), DateTime.UtcNow);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[Vocab] could not save the pronunciation logs: " + e.Message);
         }
     }
 

@@ -46,10 +46,20 @@ public class ModesSheet : MonoBehaviour
 
     public bool IsOpen => sheet != null && sheet.activeSelf;
 
+    private static ModesSheet _current;
+    /// <summary>
+    /// Modes のシートが開いているか。OnGUI で描く画面 (Talk) は uGUI より必ず手前に出るので、
+    /// 開いている間はそちらが描くのをやめる
+    /// </summary>
+    public static bool AnyOpen => _current != null && _current.IsOpen;
+
+    private void Awake() => _current = this;
+
     /// <summary>ModesNav から部品をつなぐ (起動時に 1 回)</summary>
     public void Setup(GameObject sheet, RectTransform panel, Button dimButton, Button closeButton,
                       TMP_Text modesLabel, RectTransform modesTab, List<Entry> entries)
     {
+        _current = this;
         this.sheet = sheet; this.panel = panel; this.dimButton = dimButton; this.closeButton = closeButton;
         this.modesLabel = modesLabel; this.modesTab = modesTab; this.entries = entries;
         Wire();

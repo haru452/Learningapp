@@ -16,12 +16,14 @@ public static class ModesNav
     private const string ModesTabName = "Modes";
     private const string RootName = "ModesNav";
 
-    private static readonly Color Dim = new Color(0f, 0f, 0f, 0.6f);
-    private static readonly Color SheetColor = Hex("#1E2235", 0.98f);
-    private static readonly Color CardColor = Hex("#111827", 0.95f);
-    private static readonly Color Raised = Hex("#1F2440");
-    private static readonly Color Cyan = Hex("#22D3EE");
-    private static readonly Color SubText = Hex("#9CA3AF");
+    private static readonly Color Dim = UiTheme.Scrim;
+    private static readonly Color SheetColor = WithAlpha(UiTheme.Sheet, 0.98f);
+    private static readonly Color CardColor = WithAlpha(UiTheme.Surface, 0.95f);
+    private static readonly Color Raised = UiTheme.SurfaceRaised;
+    private static readonly Color Cyan = UiTheme.Primary;
+    private static readonly Color SubText = UiTheme.SubText;
+
+    private static Color WithAlpha(Color c, float a) { c.a = a; return c; }
 
     // 元のタブの名前 (シーンの中) → カードの内容
     private static readonly (string tab, string title, string desc, string badge)[] Cards =
@@ -33,10 +35,16 @@ public static class ModesNav
         ("Repeat", "Repeat", "Repeat & shadowing", "Shadowing"),
         ("Vocab", "Vocab", "Word cards with FSRS", "FSRS"),
         ("talk to lafka", "Talk", "Chat with a 3D character", "3D Beta"),
+        (ShortAnswerScreen.TabName, "Answer", "Hear a question, answer fast", "Versant"),
+        (KaraokeScreen.TabName, "Karaoke", "Sing along, check your words", "Sing"),
     };
     // カードごとの画面の名前 (Cards と同じ順。今いる画面に「Now」を出すのに使う)
     private static readonly string[] Screens =
-        { "conversation_screen", "dairy", "summary screen", "topic screen", "repeat screen", "vocab screen", "talktoLufka" };
+        { "conversation_screen", "dairy", "summary screen", "topic screen", "repeat screen", "vocab screen", "talktoLufka",
+          ShortAnswerScreen.ScreenName, KaraokeScreen.ScreenName };
+
+    /// <summary>元のタブが出す画面の名前か (短い答えの画面を開くとき、ほかの画面を閉じるのに使う)</summary>
+    internal static bool IsScreenName(string name) => name != null && Screens.Any(s => name.StartsWith(s));
     private static readonly string[] KeepVisible = { "Dairy", "Topic", "Vocab" };   // ないと作らない
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -55,6 +63,9 @@ public static class ModesNav
 
     private static void BuildNow()
     {
+        ScreenStyles.ApplyAll();   // 画面の並べ直しを先に (できた Canvas/Root を下のタブの上までに合わせるため)
+        ShortAnswerScreen.Install();
+        KaraokeScreen.Install();       // カラオケの画面と、隠れたタブ "Karaoke" (シャドーイングとは別のモード)   // 短い答えの練習の画面と、隠れたタブ "Answer" (下でカードになる)
         var tabs = FindTabs();
         if (!KeepVisible.All(tabs.ContainsKey))
         {
@@ -80,7 +91,8 @@ public static class ModesNav
             new BottomNavBar.Item { label = "Topic", markFrom = tabs["Topic"], onClick = Press("Topic"), screens = new[] { ScreenOf("Topic") } },
             new BottomNavBar.Item { label = "Vocab", markFrom = tabs["Vocab"], onClick = Press("Vocab"), screens = new[] { ScreenOf("Vocab") } },
             new BottomNavBar.Item { label = ModesTabName, onClick = sheet.component.Open,
-                                    screens = new[] { ScreenOf("COnversationbutton"), ScreenOf("Summary"), ScreenOf("Repeat"), ScreenOf("talk to lafka") } },
+                                    screens = new[] { ScreenOf("COnversationbutton"), ScreenOf("Summary"), ScreenOf("Repeat"), ScreenOf("talk to lafka"),
+                                                     ScreenOf(ShortAnswerScreen.TabName) } },
         };
         var roots = Cards.Select(c => ScreenOf(c.tab)).Where(g => g != null).Select(g => g.transform.Find("Canvas/Root") as RectTransform);
         var nav = BottomNavBar.Create(mainCanvas, (RectTransform)tabs["Dairy"].transform, roots, font, items);
@@ -236,7 +248,7 @@ public static class ModesNav
     {
         for (int i = 0; i < tab.onClick.GetPersistentEventCount(); i++)
             if (tab.onClick.GetPersistentTarget(i) is GameObject go && go.name.StartsWith(screenName)) return go;
-        return null;
+        return UiStyle.Find(screenName);   // コードで作った画面 (短い答え) はつないでいないので、名前で探す
     }
 
     // ------------------------------------------------------------
@@ -305,10 +317,5 @@ public static class ModesNav
         image.color = color;
     }
 
-    internal static Color Hex(string hex, float alpha = 1f)
-    {
-        ColorUtility.TryParseHtmlString(hex, out var c);
-        c.a = alpha;
-        return c;
-    }
+    internal static Color Hex(string hex, float alpha = 1f) => UiTheme.Hex(hex, alpha);
 }

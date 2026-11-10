@@ -20,6 +20,8 @@ public class ApiSecrets
     public string geminiTtsApiKey;       // リピーティングの読み上げ (Gemini の声)
     public string geminiShadowApiKey;    // シャドーイング (お手本・書き起こし・アドバイス)
     public string geminiVocabApiKey;     // 単語帳 (発音のまとめ採点)
+    public string geminiAnswerApiKey;    // 短い答えの練習 (問題を作る)
+    public string geminiKaraokeApiKey;   // カラオケ (歌った録音の採点)。空なら日記のキー
     public string deeplApiKey;
     public string discordWebhookUrl;
     public string discordBotToken;
@@ -37,6 +39,8 @@ public class ApiSecrets
     public string pronunciationDiscordChannelId;    // Webhook の代わりに Bot で送る場合のチャンネルID
     public string repeatDiscordWebhookUrl;          // リピーティングの結果を送る Webhook (別のチャンネル)
     public string repeatDiscordChannelId;           // Webhook の代わりに Bot で送る場合のチャンネルID
+    public string karaokeDiscordWebhookUrl;         // カラオケの結果を送る Webhook (別のチャンネル)。空なら送らない
+    public string karaokeDiscordChannelId;          // Webhook の代わりに Bot で送る場合のチャンネルID
     public string pixabayApiKey;                    // 単語カードの裏の画像 (pixabay.com/api/docs の Key)。空なら画像は出さない
     public string merriamWebsterApiKey;             // 単語帳の辞書 (Merriam-Webster Learner's Dictionary、dictionaryapi.com の Key (Dictionary))
 

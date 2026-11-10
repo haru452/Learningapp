@@ -29,6 +29,9 @@ public static class WavSplitter
         return parts;
     }
 
+    /// <summary>ヘッダーの無い 16bit PCM を WAV にする</summary>
+    public static byte[] FromPcm(byte[] pcm, int channels, int rate) => Build(pcm, 0, pcm.Length, channels, rate);
+
     private static byte[] Build(byte[] src, int start, int length, int channels, int rate)
     {
         var w = new byte[HeaderSize + length];

@@ -20,7 +20,6 @@ public partial class SummaryPracticeManager
         _finishing = true;
         _listening = false;
         _busy = true;
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
         if (timerText != null) timerText.text = "";
         SetLoading(true);
         RefreshButtons();
@@ -97,8 +96,9 @@ public partial class SummaryPracticeManager
         catch (Exception e)
         {
             Debug.LogException(e);
-            SetState(State.Idle);   // _pending* が残っているので、メインボタンが「Retry Grading」になる
-            SetStatus("Error: " + FirstLine(e.Message) + "  (You can retry the grading)");
+            bool saved = SaveForLater(e);   // Gemini が混んでいたら、答えを残してあとで自動で送る
+            SetState(State.Idle);   // 残せなかったときは _pending* が残っているので、メインボタンが「Retry Grading」になる
+            if (!saved) SetStatus("Error: " + FirstLine(e.Message) + "  (You can retry the grading)");
         }
         finally
         {
@@ -209,6 +209,30 @@ public partial class SummaryPracticeManager
     {
         var diary = FindDiary();
         if (diary != null) diary.CountOtherPracticeAsStudyDay();
+    }
+
+    // Gemini が混んでいたら、要約 (文か録音) を端末に残してあとで自動で送る (GeminiLater)。残せたら true
+    private bool SaveForLater(Exception e)
+    {
+        if (_video == null || !GeminiLater.IsBusy(e) || (_pendingWav == null && string.IsNullOrWhiteSpace(_pendingText))) return false;
+        var job = new GeminiLater.Job
+        {
+            kind = GeminiLater.Summary,
+            model = _gemini.Model,
+            fallbackModel = _gemini.FallbackModel,
+            sendToDiscord = sendToDiscord,
+            videoId = _video.id,
+            videoTitle = _video.title,
+            watchUrl = _video.WatchUrl,
+            seconds = timeLimitSeconds,
+            text = _pendingWav != null ? "" : _pendingText,
+        };
+        if (!GeminiLater.Add(job, _pendingWav != null ? new[] { _pendingWav } : null)) return false;
+        _pendingText = null;
+        _pendingWav = null;
+        CountAsStudyDay();   // 話した日を連続記録に数える
+        SetStatus(DiaryManager.SavedForLaterMessage);
+        return true;
     }
 
     private static void AppendSection(StringBuilder sb, string heading, string body)

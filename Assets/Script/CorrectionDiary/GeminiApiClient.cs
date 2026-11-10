@@ -17,6 +17,10 @@ public partial class GeminiApiClient
     private readonly string _model;
     private readonly string _fallbackModel;
 
+    /// <summary>メインのモデル (あとで送り直すとき、同じモデルを使うため)</summary>
+    public string Model => _model;
+    public string FallbackModel => _fallbackModel;
+
     /// <param name="fallbackModel">メインモデルが混雑時(503等)に切り替える予備モデル。空なら使わない</param>
     /// <param name="backupApiKeys">
     /// apiKey が利用上限 (429) になったときに順に使うほかのキー。空のものは使わない。

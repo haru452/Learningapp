@@ -45,7 +45,11 @@ public static partial class LogicTests
         VocabTests();
         VocabClipTests();
         VocabImageTests();
+        ShortAnswerTests();
+        GeminiLaterTests();
+        KaraokeTests();
         ReminderTests();
+        ShadowRewindTests();
 
         if (_failed > 0)
         {
@@ -127,6 +131,8 @@ private static void MistakeTypeTests()
         Check(TabBadge.Add(null) == "\u25CF", "null label: " + TabBadge.Add(null));
         Check(TabBadge.Message(72) == "Topic: graded — 72 / 100", "toast with score: " + TabBadge.Message(72));
         Check(TabBadge.Message(null) == "Topic: grading failed — open Topic and tap Retry", "toast on error: " + TabBadge.Message(null));
+        Check(TabBadge.ShadowMessage(81) == "Shadowing: checked — 81%", "shadow toast: " + TabBadge.ShadowMessage(81));
+        Check(TabBadge.ShadowMessage(null) == "Shadowing: could not check — open Repeat", "shadow toast on error: " + TabBadge.ShadowMessage(null));
     }
 
     // API キーが 2 つあるとき: 自分のキーで (メイン → 予備モデル)、上限なら もう片方のキーで (メイン → 予備モデル)

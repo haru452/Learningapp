@@ -40,6 +40,7 @@ public partial class VocabTodayView
         public Button LevelUpButton;
         public TMP_Text LevelUpLabel;
         public Button VideosButton;     // カードの Sound / Say it の行 (無ければ動画の機能は無し)
+        public Button BackButton;       // 前の単語に戻る (直前の評価を取り消す)。VocabManager が起動時に作る
     }
 
     private enum Mode { Idle, Loading, Card, Summary, Weak }
@@ -70,7 +71,9 @@ public partial class VocabTodayView
     private readonly Dictionary<string, GeminiApiClient.WordPronResult> _gemini = new Dictionary<string, GeminiApiClient.WordPronResult>();
     private readonly Dictionary<string, TMP_Text> _rows = new Dictionary<string, TMP_Text>();
     private bool _flipped;
-    private VocabCardImageView _image;      // 裏で Sound / Say it / Videos の代わりに出す画像 (キーが無ければ null)
+    private VocabCardImageView _image;
+    // この回の評価 (戻るときに取り消す): 履歴の行と、その評価で単語帳に足したか
+    private readonly Stack<(VocabReview review, bool added)> _undo = new Stack<(VocabReview, bool)>();      // 裏で Sound / Say it / Videos の代わりに出す画像 (キーが無ければ null)
     private bool _finishing;
     private bool _starting;
     private bool _scoring;
@@ -96,6 +99,7 @@ public partial class VocabTodayView
         if (_v.CardButton != null) _v.CardButton.onClick.AddListener(() => { if (VideosOpen) return; _flipped = !_flipped; Render(); });
         if (_v.SoundButton != null) _v.SoundButton.onClick.AddListener(() => PlayModel(CurrentCard));
         if (_v.SayButton != null) _v.SayButton.onClick.AddListener(OnSayClicked);
+        if (_v.BackButton != null) _v.BackButton.onClick.AddListener(GoBack);
         if (_v.VideosButton != null)
         {
             VocabContext.SetLabel(_v.VideosButton, "Videos");
@@ -289,6 +293,7 @@ public partial class VocabTodayView
             return;
         }
         _session = new VocabSession(cards, VocabSettings.Retention / 100.0);
+        _undo.Clear();
         SetMode(Mode.Card);
         ShowCard();
         _ctx.KickPrefetch?.Invoke();   // 今の回の単語から動画の場面を準備する
@@ -297,7 +302,7 @@ public partial class VocabTodayView
     private void ResetSessionData()
     {
         _session = null;
-        _dicts.Clear(); _pron.Clear(); _heard.Clear(); _recs.Clear(); _gemini.Clear(); _rows.Clear();
+        _dicts.Clear(); _pron.Clear(); _heard.Clear(); _recs.Clear(); _gemini.Clear(); _savedForLater.Clear(); _rows.Clear();
         _geminiFailed = false;
         _scoring = false;
         _note = "";
@@ -348,6 +353,7 @@ public partial class VocabTodayView
         if (_flipped) _image?.Show(c.Word);
         else _image?.Hide(preloadWord: c.Word);
 
+        ShowBack(_mode == Mode.Card, _session != null && _session.CanGoBack);
         bool rating = _mode == Mode.Card && _flipped;
         SetActive(_v.RatingRow, rating);
         VocabContext.Show(_v.RatingHint, rating);
@@ -384,11 +390,17 @@ public partial class VocabTodayView
         if (dict != null && dict.Found) sb.Append(_ctx.DescribeEntries(dict, c.Word)).Append('\n');
         else sb.Append("<color=#aaaaaa>No dictionary entry.</color>\n");
         if (!string.IsNullOrWhiteSpace(c.MyMeaning)) sb.Append("\n<b>My meaning:</b> ").Append(VocabContext.Esc(c.MyMeaning)).Append('\n');
-        var examples = dict != null && dict.Found ? dict.Entries.SelectMany(e => e.Examples).Take(2).ToList() : new List<string>();
-        if (examples.Count > 0)
+        // 品詞ごとの例文 (名詞と動詞がある語なら両方)。品詞が 2 つ以上なら、品詞の名前を付ける
+        var groups = VocabContext.ExamplesByPos(dict);
+        if (groups.Count > 0)
         {
             sb.Append("\n<b>Examples</b>\n");
-            foreach (var ex in examples) sb.Append("<size=85%><i>").Append(VocabContext.Esc(ex)).Append("</i></size>\n");
+            foreach (var (pos, examples) in groups)
+            {
+                if (groups.Count > 1 && pos.Length > 0)
+                    sb.Append("<size=80%><color=#9CA3AF>").Append(VocabContext.Esc(pos)).Append("</color></size>\n");
+                foreach (var ex in examples) sb.Append("<size=85%><i>").Append(VocabContext.Esc(ex)).Append("</i></size>\n");
+            }
         }
         return sb.ToString().TrimEnd();
     }
@@ -484,13 +496,32 @@ public partial class VocabTodayView
         _ctx.Audio.Stop();
         var card = _session.Current;
         var review = _session.Rate(rating, DateTime.UtcNow);
-        if (_ctx.Deck.Find(card.Word) == null) _ctx.Deck.Cards.Add(card);   // 新しい単語は評価したときに単語帳へ
+        bool added = _ctx.Deck.Find(card.Word) == null;
+        if (added) _ctx.Deck.Cards.Add(card);   // 新しい単語は評価したときに単語帳へ
+        _undo.Push((review, added));
         _ctx.SaveDeck();
         try { VocabStore.AppendReview(review); }
         catch (Exception e) { Debug.LogWarning("[Vocab] could not save the review: " + e.Message); }
 
         if (_session.Done) ShowSummary(first: true);
         else ShowCard();
+        _ctx.KickPrefetch?.Invoke();
+    }
+
+    /// <summary>前の単語に戻る: 直前の評価を取り消し (予定・単語帳への追加・履歴の行)、その単語の表を出す</summary>
+    private void GoBack()
+    {
+        if (_mode != Mode.Card || _session == null || !_session.CanGoBack || _undo.Count == 0 || VideosOpen) return;
+        _ctx.Capture.Cancel();
+        _ctx.Audio.Stop();
+        var (review, added) = _undo.Pop();
+        var card = _session.Back();
+        if (card == null) return;
+        if (added) _ctx.Deck.Cards.Remove(card);
+        _ctx.SaveDeck();
+        try { VocabStore.RemoveReview(review); }
+        catch (Exception e) { Debug.LogWarning("[Vocab] could not undo the review: " + e.Message); }
+        ShowCard();
         _ctx.KickPrefetch?.Invoke();
     }
 
@@ -511,6 +542,15 @@ public partial class VocabTodayView
         if (mode != Mode.Card && mode != Mode.Weak) _videos?.Dismiss();   // 回を離れたら動画の画面も閉じる
         _mode = mode;
         _ctx.ShowTabs?.Invoke(mode == Mode.Idle || mode == Mode.Summary);
+        if (mode != Mode.Card) ShowBack(false, false);
+    }
+
+    // 「前の単語」のボタンの行: 学習中はずっと出す (カードの位置がずれないように)。戻れないとき (1 枚目) は押せない
+    private void ShowBack(bool shown, bool canGoBack)
+    {
+        if (_v.BackButton == null) return;
+        SetActive(_v.BackButton.transform.parent.gameObject, shown);
+        _v.BackButton.interactable = canGoBack;
     }
 
     private static void SetActive(GameObject go, bool on)

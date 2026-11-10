@@ -176,7 +176,6 @@ public partial class DiaryManager : MonoBehaviour
 
         if (nativeStt != null) nativeStt.Cancel();
         if (recorder != null && recorder.IsRecording) recorder.StopRecording();
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
 
         SetRecordingUi(false);
         SetLoading(false);
@@ -202,7 +201,6 @@ public partial class DiaryManager : MonoBehaviour
             nativeStt.Cancel();
         }
 
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
     }
 
     // ------------------------------------------------------------
@@ -401,7 +399,6 @@ public partial class DiaryManager : MonoBehaviour
         _finalizing = true;
         _sessionLive = false;
         _active = false;
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
 
         _busy = true;
         recordButton.interactable = false;
@@ -427,8 +424,9 @@ public partial class DiaryManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogException(e);
-            SetStatus("Error: " + FirstLine(e.Message) +
-                      (string.IsNullOrEmpty(_pendingText) ? "" : "  (You can retry the correction)"));
+            if (!SaveForLater(e))   // Gemini が混んでいたら、日記を残してあとで自動で送る
+                SetStatus("Error: " + FirstLine(e.Message) +
+                          (string.IsNullOrEmpty(_pendingText) ? "" : "  (You can retry the correction)"));
         }
         finally
         {

@@ -15,21 +15,21 @@ using UnityEngine.UI;
 public static class VocabLayoutTuner
 {
     private const string UndoName = "Update Vocabulary Screen";
-    private const float ButtonFontMax = 28f;
-    private const float TabFontMax = 26f;
+    private const float ButtonFontMax = UiTheme.BodySize;
+    private const float TabFontMax = 30f;
     private const float CardMinHeight = 600f;
 
     // 名前 → 高さ (preferredHeight)
     private static readonly Dictionary<string, float> Heights = new Dictionary<string, float>
     {
         // 上
-        ["HeaderText"] = 40, ["SubTabs"] = 60,
+        ["HeaderText"] = 64, ["SubTabs"] = 112,
         // Today
-        ["ProgressText"] = 36, ["LevelPickRow"] = 80, ["VoiceRow"] = 76, ["RatingRow"] = 84,
-        ["RatingHint"] = 32, ["SummaryButtons"] = 70, ["StartButton"] = 80,
+        ["ProgressText"] = 40, ["LevelPickRow"] = UiTheme.MinTouch, ["VoiceRow"] = UiTheme.MinTouch, ["RatingRow"] = 136,
+        ["RatingHint"] = 40, ["SummaryButtons"] = UiTheme.MinTouch, ["StartButton"] = UiTheme.ButtonHeight,
         // Words
-        ["StatusRow"] = 64, ["FilterRow"] = 60, ["WordRowTemplate"] = 80, ["DialogButton0"] = 70,
-        ["DialogButton1"] = 70, ["DialogButton2"] = 70,
+        ["StatusRow"] = 64, ["FilterRow"] = UiTheme.MinTouch, ["WordRowTemplate"] = UiTheme.MinTouch, ["DialogButton0"] = UiTheme.MinTouch,
+        ["DialogButton1"] = UiTheme.MinTouch, ["DialogButton2"] = UiTheme.MinTouch,
     };
 
     [MenuItem("Tools/Vocabulary/Update Vocabulary Screen")]
@@ -104,6 +104,8 @@ public static class VocabLayoutTuner
         if (le == null) return 0;
         Undo.RecordObject(le, UndoName);
         le.preferredHeight = height;
+        // 横に並べる行は「余りの高さがほしい」と伝えるので、0 にしてカードや一覧に回す
+        le.flexibleHeight = 0;
         return 1;
     }
 

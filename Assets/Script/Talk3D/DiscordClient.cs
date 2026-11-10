@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 ///  - 無ければ Bot トークン + チャンネルID で送信
 /// Discord の1メッセージは2000文字までなので、長い日記は自動で分割して送る。
 /// </summary>
-public class DiscordClient
+public partial class DiscordClient
 {
     private const int MaxMessageLength = 1900;   // 上限2000字に余裕を持たせる
     private const string ApiBase = "https://discord.com/api/v10";
@@ -228,19 +228,26 @@ public class DiscordClient
         await PostAsync(SoundPracticeMessage(date, top, video));
     }
 
-    /// <summary>今日の発音練習のメッセージ (絵文字は使わない)</summary>
+    /// <summary>
+    /// 今日の発音練習のメッセージ (絵文字は使わない)。
+    /// 「なぜこの音か」(30 日でいちばん言えていない音・言えなかった単語) と「だからこの動画」がわかるように書く
+    /// </summary>
     public static string SoundPracticeMessage(DateTime date, WeakSound top, YouTubeSearchClient.Video video)
     {
         var sb = new System.Text.StringBuilder();
-        sb.Append("**Today's pronunciation practice - ").Append(date.ToString("yyyy-MM-dd")).Append("**\n");
         string label = SoundTypes.Label(top.Sound, top.Label);
         string example = SoundTypes.Example(top.Sound);
-        sb.Append("Your weakest sound: ").Append(label).Append(example.Length > 0 ? " (" + example + ")" : "")
-          .Append(" \u2014 ").Append(top.Points).Append(" points in 30 days\n");
+        string sound = label + (example.Length > 0 ? " (" + example + ")" : "");
+        sb.Append("**今日の発音練習 ").Append(date.ToString("yyyy-MM-dd")).Append("**\n");
+        sb.Append("この 30 日で、あなたがいちばん言えていない音は **").Append(sound).Append("** です。\n");
+        sb.Append("(Topic・Repeat で言えなかった単語から数えた苦手の点数: ").Append(top.Points).Append(" 点");
+        if (top.PreviousPoints.HasValue) sb.Append("、その前の 30 日は ").Append(top.PreviousPoints.Value).Append(" 点");
+        sb.Append(")\n");
         if (top.Words != null && top.Words.Count > 0)
-            sb.Append("Words you missed: ").Append(string.Join(", ", top.Words)).Append('\n');
+            sb.Append("言えなかった単語: ").Append(string.Join(", ", top.Words)).Append('\n');
         if (video != null)
-            sb.Append("Video: ").Append((video.title ?? "").Trim()).Append(" (").Append((video.channel ?? "").Trim()).Append(")\n")
+            sb.Append("\nなので今日は、この音を練習する動画を送ります:\n")
+              .Append((video.title ?? "").Trim()).Append(" (").Append((video.channel ?? "").Trim()).Append(")\n")
               .Append(video.WatchUrl);
         return sb.ToString().TrimEnd();
     }

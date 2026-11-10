@@ -22,6 +22,16 @@ public class VocabCard
     public string PronBest = "";      // "" / again / close / clear (1 段階目の一番良い判定)
     public int PronAttempts;
     public string GeminiPron = "";    // "" / good / close / practice (最後の Gemini の判定)
+
+    /// <summary>評価で変わる値 (復習の予定) の写し。評価を取り消すときに RestoreSchedule で戻す</summary>
+    public VocabCard ScheduleCopy() => (VocabCard)MemberwiseClone();
+
+    public void RestoreSchedule(VocabCard s)
+    {
+        if (s == null) return;
+        Status = s.Status; DueAt = s.DueAt; Stability = s.Stability; Difficulty = s.Difficulty;
+        LastReviewAt = s.LastReviewAt; Reps = s.Reps; MissCount = s.MissCount; KnownAt = s.KnownAt;
+    }
 }
 
 /// <summary>評価の履歴 (vocab/reviews.json。消さない)</summary>

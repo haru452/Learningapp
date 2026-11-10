@@ -86,6 +86,28 @@ public partial class TopicPracticeManager
         }
     }
 
+    // Gemini が混んでいたら、答え (文か録音) を端末に残してあとで自動で送る (GeminiLater)。残せたら true
+    private bool SaveForLater(Exception e, string text, byte[] wav)
+    {
+        if (_topic == null || !GeminiLater.IsBusy(e) || (wav == null && string.IsNullOrWhiteSpace(text))) return false;
+        var job = new GeminiLater.Job
+        {
+            kind = GeminiLater.Topic,
+            model = _gemini.Model,
+            fallbackModel = _gemini.FallbackModel,
+            sendToDiscord = sendToDiscord,
+            topicKind = _topic.kind,
+            topic = _topic.topic,
+            seconds = TopicCatalog.SecondsFor(_topic.kind),
+            focusTypes = new List<string>(_focusTypes),
+            text = wav != null ? "" : text,
+        };
+        if (!GeminiLater.Add(job, wav != null ? new[] { wav } : null)) return false;
+        CountAsStudyDay();   // 話した日を連続記録に数える
+        SetStatus(DiaryManager.SavedForLaterMessage);
+        return true;
+    }
+
     private DiaryManager FindDiary()
     {
         if (_diary == null) _diary = FindObjectOfType<DiaryManager>(true);
@@ -177,7 +199,6 @@ public partial class TopicPracticeManager
         _sessionId++;
         if (nativeStt != null && nativeStt.IsListening) nativeStt.Cancel();
         if (recorder != null && recorder.IsRecording) recorder.StopRecording();
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
         if (timerText != null) timerText.text = "";
     }
 

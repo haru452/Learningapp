@@ -121,14 +121,22 @@ public static partial class LogicTests
     private static void PrefetchOneMissingTest()
     {
         var f = new PrefetchFakes { Session = Words("s", 5), NextNew = Words("n", 15) };
-        f.Ready(f.Session.Concat(f.NextNew).Where(w => w != "n7").ToArray());
+        f.Ready(f.Session.Concat(f.NextNew).Where(w => w != "s4").ToArray());
         f.Clip.Transcripts["v1"] = Lines("nothing here"); // 字幕は読めるが場面は無い (0 場面で保存)
         var p = f.Make();
         p.Kick();
         Wait(p.RunningTask);
-        Check(string.Join(",", f.Clip.SearchedWords) == "n7", "prefetch one missing: searched " + string.Join(",", f.Clip.SearchedWords));
+        Check(string.Join(",", f.Clip.SearchedWords) == "s4", "prefetch one missing: searched " + string.Join(",", f.Clip.SearchedWords));
         Check(f.Clip.CloudCalls == 2, "prefetch one missing: fill + get (" + f.Clip.CloudCalls + ")");
-        Check(VocabClipStore.IsReady(f.Clip.Storage.Load("n7"), f.Clip.Now), "prefetch one missing: now ready");
+        Check(VocabClipStore.IsReady(f.Clip.Storage.Load("s4"), f.Clip.Now), "prefetch one missing: now ready");
+
+        // 6 番目より先の単語は、共有の一覧だけで埋め、その場の検索はしない (1 日の回数を先読みで使い切らない)
+        var far = new PrefetchFakes { Session = Words("s", 5), NextNew = Words("n", 15) };
+        far.Ready(far.Session.Concat(far.NextNew).Where(w => w != "n7").ToArray());
+        var pf = far.Make();
+        pf.Kick();
+        Wait(pf.RunningTask);
+        Check(far.Clip.SearchCalls == 0 && far.Clip.CloudCalls == 1, "prefetch far word: cloud only, no search (" + far.Clip.SearchCalls + ")");
     }
 
     private static void PrefetchCloudCoversTest()
@@ -147,7 +155,7 @@ public static partial class LogicTests
     private static void PrefetchKickThreeTimesTest()
     {
         var f = new PrefetchFakes { Session = Words("s", 5), NextNew = Words("n", 15) };
-        f.Ready(f.Session.Concat(f.NextNew).Where(w => w != "s1" && w != "n1").ToArray());
+        f.Ready(f.Session.Concat(f.NextNew).Where(w => w != "s1" && w != "s2").ToArray());
         f.Clip.Transcripts["v1"] = Lines("nothing here"); // 字幕は読めるが場面は無い (0 場面で保存)
         f.Clip.SearchGate = new TaskCompletionSource<List<YouTubeSearchClient.Video>>();
         var p = f.Make();
@@ -160,7 +168,7 @@ public static partial class LogicTests
         f.Clip.SearchGate.SetResult(TenVideos());
         Wait(p.RunningTask);
         Check(!p.IsRunning, "prefetch kick x3: finished");
-        Check(string.Join(",", f.Clip.SearchedWords) == "s1,n1", "prefetch kick x3: each word once " + string.Join(",", f.Clip.SearchedWords));
+        Check(string.Join(",", f.Clip.SearchedWords) == "s1,s2", "prefetch kick x3: each word once " + string.Join(",", f.Clip.SearchedWords));
         Check(f.LoadNextNewCalls == 2, "prefetch kick x3: at most 2 passes (" + f.LoadNextNewCalls + ")");
     }
 

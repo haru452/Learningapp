@@ -211,7 +211,6 @@ public partial class SummaryPracticeManager : MonoBehaviour
             if (_state == State.Speaking) nativeStt.Cancel();
         }
 
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
     }
 
     private void Update()
@@ -443,7 +442,6 @@ public partial class SummaryPracticeManager : MonoBehaviour
         _sessionId++;   // 自動再開を無効化
         if (nativeStt != null) nativeStt.Cancel();
         if (recorder != null && recorder.IsRecording) recorder.StopRecording();
-        Screen.sleepTimeout = SleepTimeout.SystemSetting;
         if (timerText != null) timerText.text = "";
     }
 

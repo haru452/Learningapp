@@ -50,6 +50,7 @@ public class ShadowUi
         var row = NewRow(root, "ShadowRow", 90);
         row.transform.SetSiblingIndex(0);
         (_shadowButton, _shadowLabel) = CloneButton(row.transform, "ShadowingButton");
+        UiStyle.Secondary(_shadowButton);
         _shadowButton.onClick.AddListener(() =>
         {
             ShadowOn = !ShadowOn;
@@ -68,16 +69,22 @@ public class ShadowUi
         inputGo.AddComponent<LayoutElement>().flexibleWidth = 3;
         _input = inputGo.GetComponent<TMP_InputField>();
         _input.lineType = TMP_InputField.LineType.SingleLine;
+        UiStyle.Surface(inputGo, UiTheme.Surface, outline: true);
         foreach (var t in inputGo.GetComponentsInChildren<TMP_Text>(true))
         {
             if (_textTemplate != null) t.font = _textTemplate.font;
             t.fontSize = 30;
+            t.color = t == _input.placeholder ? UiTheme.SubText : UiTheme.Text;
         }
+        _input.caretColor = UiTheme.Primary;
+        _input.customCaretColor = true;
+        _input.selectionColor = new Color(UiTheme.Primary.r, UiTheme.Primary.g, UiTheme.Primary.b, 0.35f);
         if (_input.placeholder is TMP_Text ph) ph.text = "Video title";
         _input.onSubmit.AddListener(_ => RequestSearch());
         TMP_Text searchLabel;
         (_searchButton, searchLabel) = CloneButton(_searchRow.transform, "ShadowSearchButton");
         searchLabel.text = "Search";
+        UiStyle.Secondary(_searchButton);
         _searchButton.onClick.AddListener(RequestSearch);
 
         // 候補 (最大 5)
@@ -118,7 +125,11 @@ public class ShadowUi
         {
             var (b, label) = CloneButton(_candidates.transform, "Candidate");
             var le = b.GetComponent<LayoutElement>() ?? b.gameObject.AddComponent<LayoutElement>();
-            le.preferredHeight = 80;
+            le.preferredHeight = UiTheme.MinTouch;
+            UiStyle.Secondary(b);
+            label.fontStyle = FontStyles.Normal;
+            label.fontSize = 28f;
+            label.alignment = TextAlignmentOptions.MidlineLeft;
             label.text = Escape(v.title) + " — " + Escape(v.channel) + " (" + YouTubeSearchClient.FormatDuration(v.durationSeconds) + ")";
             var chosen = v;
             b.onClick.AddListener(() => Choose(chosen));
@@ -201,7 +212,9 @@ public class ShadowUi
         hlg.spacing = 16;
         hlg.childControlWidth = hlg.childControlHeight = true;
         hlg.childForceExpandWidth = hlg.childForceExpandHeight = true;
-        row.AddComponent<LayoutElement>().preferredHeight = height;
+        var le = row.AddComponent<LayoutElement>();
+        le.preferredHeight = Mathf.Max(height, UiTheme.MinTouch);
+        le.flexibleHeight = 0;   // 横に並べる行は余りの高さを取ってしまうので 0 にする
         return row;
     }
 

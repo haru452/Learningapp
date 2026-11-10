@@ -234,6 +234,7 @@ public class SttEchoController : MonoBehaviour
 
     void OnGUI()
     {
+        if (ModesSheet.AnyOpen) return;   // Modes のシートの上に重ならないように
         int fontSize = Mathf.Max(24, Screen.height / 38);
         var label = new GUIStyle(GUI.skin.label) { fontSize = fontSize, wordWrap = true };
         var button = new GUIStyle(GUI.skin.button) { fontSize = fontSize };

@@ -29,7 +29,6 @@ public partial class TopicPracticeManager
         if (!_useNative)
         {
             _listening = false;
-            Screen.sleepTimeout = SleepTimeout.SystemSetting;
             byte[] wav = recorder.IsRecording ? recorder.StopRecording() : null;
             _busy = false;
             if (wav == null || wav.Length == 0)
@@ -118,10 +117,18 @@ public partial class TopicPracticeManager
         catch (Exception e)
         {
             Debug.LogException(e);
-            if (wav != null) _retryWav = wav;   // 録音は残しておく (答えを失わないように)
-            else _retryText = text;
             SetState(State.Idle);
-            SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to grade the same answer again)");
+            if (SaveForLater(e, text, wav))   // Gemini が混んでいたら、答えを残してあとで自動で送る
+            {
+                _retryText = null;
+                _retryWav = null;
+            }
+            else
+            {
+                if (wav != null) _retryWav = wav;   // 録音は残しておく (答えを失わないように)
+                else _retryText = text;
+                SetStatus("Error: " + FirstLine(e.Message) + "  (Tap Retry to grade the same answer again)");
+            }
             NotifyIfHidden(null);
         }
         finally
@@ -245,7 +252,7 @@ public partial class TopicPracticeManager
         sb.Append("\n<b>").Append(match.AccuracyPercent).Append("%</b>");
         if (!string.IsNullOrWhiteSpace(heard)) sb.Append("  <size=70%>(heard: ").Append(heard).Append(")</size>");
         _lastReadResult = sb.ToString();
-        SetStatus("Tap \"Next\" for the next sentence, or check your pronunciation.");
+        SetStatus("Tap \"Next\" for the next sentence, \"Again\" to read it once more, or check your pronunciation.");
         RefreshReadAloud();
     }
 
@@ -421,6 +428,7 @@ public partial class TopicPracticeManager
     {
         bool any = _readSentences.Length > 0;
         if (readAloudGroup != null) readAloudGroup.SetActive(any);
+        RefreshReadAgainButton();   // 1 文読んだあとの「Again」(同じ文をもう一度)
         if (!any || ReadAloudFinished) RestoreTopicAtTop();
         if (!any) return;
         if (ReadAloudFinished)

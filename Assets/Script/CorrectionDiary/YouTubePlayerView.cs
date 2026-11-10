@@ -166,6 +166,16 @@ public class YouTubePlayerView : MonoBehaviour
 #endif
     }
 
+    /// <summary>今の位置から seconds 秒動かして再生を続ける (負で戻す。0 秒より前には行かない)</summary>
+    public void SeekBy(double seconds)
+    {
+#if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
+        if (_webView == null || _hidden) return;
+        _webView.EvaluateJS("if (player && player.seekTo) { player.seekTo(Math.max(0, player.getCurrentTime() + ("
+            + seconds.ToString(CultureInfo.InvariantCulture) + ")), true); player.playVideo(); }");
+#endif
+    }
+
     public void Hide()
     {
 #if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR

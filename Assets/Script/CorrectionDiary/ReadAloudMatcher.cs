@@ -14,6 +14,8 @@ public static class ReadAloudMatcher
     {
         public string Text;     // お手本の語 (元の綴り・句読点のまま)
         public bool Matched;    // 言えていたか
+        /// <summary>言えなかった語のまとまりの最後の語にだけ付く: 代わりに聞こえた語 (何も聞こえなければ "")。ほかの語は null</summary>
+        public string Heard;
     }
 
     public class Result
@@ -49,10 +51,20 @@ public static class ReadAloudMatcher
             }
         }
 
+        var heardRaw = new List<string>();
         var heardParts = new List<string>();
-        foreach (string raw in SplitWords(heard)) heardParts.AddRange(PartsOf(raw));
+        var heardOwner = new List<int>();
+        foreach (string raw in SplitWords(heard))
+        {
+            var parts = PartsOf(raw);
+            if (parts.Count == 0) continue;
+            foreach (string p in parts) { heardParts.Add(p); heardOwner.Add(heardRaw.Count); }
+            heardRaw.Add(raw);
+        }
 
-        bool[] partMatched = LongestCommonSubsequence(expectedParts, heardParts);
+        int[] pairOf = LongestCommonSubsequence(expectedParts, heardParts);
+        var partMatched = new bool[pairOf.Length];
+        for (int k = 0; k < pairOf.Length; k++) partMatched[k] = pairOf[k] >= 0;
 
         var wordOk = new bool[originals.Count];
         for (int i = 0; i < wordOk.Length; i++) wordOk[i] = true;
@@ -66,7 +78,54 @@ public static class ReadAloudMatcher
             if (wordOk[i]) matched++;
         }
         result.AccuracyPercent = (int)Math.Round(matched * 100.0 / originals.Count, MidpointRounding.AwayFromZero);
+        AddHeard(result.Words, ownerOfPart, pairOf, heardOwner, heardRaw);
         return result;
+    }
+
+    /// <summary>
+    /// 言えなかった語のまとまりごとに、その前後で言えた語の間に聞こえた語を、まとまりの最後の語の Heard に入れる
+    /// </summary>
+    private static void AddHeard(List<Word> words, List<int> ownerOfPart, int[] pairOf, List<int> heardOwner, List<string> heardRaw)
+    {
+        // 語ごとに、対応した聞こえた部分語の位置の最小・最大 (無ければ -1)
+        int n = words.Count;
+        var first = new int[n];
+        var last = new int[n];
+        for (int i = 0; i < n; i++) { first[i] = -1; last[i] = -1; }
+        for (int k = 0; k < pairOf.Length; k++)
+        {
+            int j = pairOf[k], w = ownerOfPart[k];
+            if (j < 0) continue;
+            if (first[w] < 0) first[w] = j;
+            last[w] = j;
+        }
+
+        int start = 0;
+        while (start < n)
+        {
+            if (words[start].Matched) { start++; continue; }
+            int end = start;
+            while (end + 1 < n && !words[end + 1].Matched) end++;
+
+            int lo = -1;   // まとまりの前で言えた語の、最後の聞こえた位置
+            for (int i = start - 1; i >= 0 && lo < 0; i--) lo = last[i];
+            int hi = heardOwner.Count;   // まとまりの後で言えた語の、最初の聞こえた位置
+            for (int i = end + 1; i < n; i++) if (first[i] >= 0) { hi = first[i]; break; }
+
+            var heardWords = new List<string>();
+            int prevOwner = -1;
+            for (int j = lo + 1; j < hi; j++)
+            {
+                int o = heardOwner[j];
+                if (o == prevOwner) continue;
+                heardWords.Add(heardRaw[o]);
+                prevOwner = o;
+            }
+            var wd = words[end];
+            wd.Heard = string.Join(" ", heardWords);
+            words[end] = wd;
+            start = end + 1;
+        }
     }
 
     // ------------------------------------------------------------
@@ -132,8 +191,8 @@ public static class ReadAloudMatcher
         return parts;
     }
 
-    /// <summary>a の各要素が、b との最長共通部分列に入ったかどうか</summary>
-    private static bool[] LongestCommonSubsequence(List<string> a, List<string> b)
+    /// <summary>a の各要素が、b との最長共通部分列で対応した b の位置 (入らなければ -1)</summary>
+    private static int[] LongestCommonSubsequence(List<string> a, List<string> b)
     {
         int n = a.Count, m = b.Count;
         var len = new int[n + 1, m + 1];
@@ -141,11 +200,12 @@ public static class ReadAloudMatcher
             for (int j = m - 1; j >= 0; j--)
                 len[i, j] = a[i] == b[j] ? len[i + 1, j + 1] + 1 : Math.Max(len[i + 1, j], len[i, j + 1]);
 
-        var matched = new bool[n];
+        var matched = new int[n];
+        for (int i = 0; i < n; i++) matched[i] = -1;
         int x = 0, y = 0;
         while (x < n && y < m)
         {
-            if (a[x] == b[y]) { matched[x] = true; x++; y++; }
+            if (a[x] == b[y]) { matched[x] = y; x++; y++; }
             else if (len[x + 1, y] >= len[x, y + 1]) x++;
             else y++;
         }

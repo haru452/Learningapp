@@ -71,6 +71,17 @@ public static class VocabStore
         WriteAtomic(ReviewsPath, VocabJson.ReviewsToJson(all));
     }
 
+    /// <summary>評価を取り消したとき: その評価の行 (同じ語・同じ時刻の最後の 1 行) を履歴から消す</summary>
+    public static void RemoveReview(VocabReview review)
+    {
+        if (review == null) return;
+        var all = LoadReviews();
+        int i = all.FindLastIndex(r => r.Word == review.Word && r.At == review.At);
+        if (i < 0) return;
+        all.RemoveAt(i);
+        WriteAtomic(ReviewsPath, VocabJson.ReviewsToJson(all));
+    }
+
     /// <summary>次に出す新しい単語 (next_new.json)。無い・壊れていれば空</summary>
     public static List<string> LoadNextNew()
     {

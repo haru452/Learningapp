@@ -95,13 +95,14 @@ public static partial class LogicTests
         var topTh = new WeakSound { Sound = "th", Label = "", Points = 9, Words = new List<string> { "think", "three", "weather" } };
         var video = new YouTubeSearchClient.Video { id = "abc123", title = "TH sound", channel = "Teacher" };
         string msg = DiscordClient.SoundPracticeMessage(new DateTime(2026, 10, 23), topTh, video);
-        Check(msg.StartsWith("**Today's pronunciation practice - 2026-10-23**") && msg.Contains("Your weakest sound: TH (think / this) \u2014 9 points in 30 days")
-              && msg.Contains("Words you missed: think, three, weather") && msg.Contains("TH sound (Teacher)")
+        Check(msg.StartsWith("**今日の発音練習 2026-10-23**") && msg.Contains("いちばん言えていない音は **TH (think / this)** です")
+              && msg.Contains("苦手の点数: 9 点)") && msg.Contains("言えなかった単語: think, three, weather")
+              && msg.Contains("なので今日は、この音を練習する動画を送ります:\nTH sound (Teacher)")
               && msg.Contains("https://www.youtube.com/watch?v=abc123"), "sound discord: " + msg);
         string msgOther = DiscordClient.SoundPracticeMessage(new DateTime(2026, 10, 23),
-            new WeakSound { Sound = "other", Label = "z", Points = 6 }, video);
-        Check(msgOther.Contains("Your weakest sound: Other: z \u2014 6 points in 30 days") && !msgOther.Contains("Words you missed"),
-              "sound discord: other, no words line");
+            new WeakSound { Sound = "other", Label = "z", Points = 6, PreviousPoints = 2 }, video);
+        Check(msgOther.Contains("**Other: z**") && msgOther.Contains("6 点、その前の 30 日は 2 点)") && !msgOther.Contains("言えなかった単語: "),
+              "sound discord: other, previous points, no words line");
     }
 
     // 日記の添削: 直った語だけを色付きの太字にする (アプリの画面用)
@@ -174,6 +175,18 @@ public static partial class LogicTests
         Check(sc.scores.Select(x => x.Accuracy).SequenceEqual(new[] { 100, 0, 100 }) && sc.average == 67 && !sc.empty,
             "score: per sentence " + string.Join(",", sc.scores.Select(x => x.Accuracy)) + " avg " + sc.average);
         Check(sc.scores[1].Words.Count == 5 && sc.scores[1].Words.All(x => !x.Matched), "score: missed sentence words all red");
+        // 間違えた所で、代わりに何と聞こえたか (赤い語のまとまりの最後の語に付く)
+        var h = ReadAloudMatcher.Match("She went home early today.", "she want home today").Words;
+        Check(h[1].Heard == "want" && h[3].Heard == "" && h[0].Heard == null && h[2].Heard == null,
+            "heard: went->want, early->nothing (" + string.Join("|", h.Select(x => x.Heard ?? "null")) + ")");
+        var h2 = ReadAloudMatcher.Match("I like green tea.", "I lake grin tea").Words;
+        Check(h2[1].Heard == null && h2[2].Heard == "lake grin", "heard: run of 2 missed words -> one note on the last (" + h2[2].Heard + ")");
+        var h3 = ReadAloudMatcher.Match("We play soccer.", "we play").Words;
+        Check(h3[2].Heard == "", "heard: missed at the end -> nothing heard");
+        Check(ReadAloudMatcher.Match("We play soccer.", "we play soccer").Words.All(x => x.Heard == null), "heard: all matched -> no notes");
+        Check(ShadowScorer.HeardNote(null) == null && ShadowScorer.HeardNote("") == null, "heard note: nothing -> no note");
+        Check(ShadowScorer.HeardNote("want") == "want", "heard note: short kept");
+        Check(ShadowScorer.HeardNote("a b c d e f g h i j") == "a b c d e f g h …", "heard note: long cut to 8 words (" + ShadowScorer.HeardNote("a b c d e f g h i j") + ")");
         var none = ShadowScorer.Score(sentences, "  ");
         Check(none.empty && none.average == 0, "score: nothing heard -> empty");
 

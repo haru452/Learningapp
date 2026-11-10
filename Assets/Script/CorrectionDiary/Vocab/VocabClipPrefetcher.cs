@@ -9,8 +9,13 @@ using System.Threading.Tasks;
 
 public class VocabClipPrefetcher
 {
-    /// <summary>準備しておく単語の数</summary>
+    /// <summary>準備しておく単語の数 (共有の一覧から埋める)</summary>
     public const int Target = 20;
+
+    /// <summary>
+    /// その場の YouTube 検索までするのは、次に出る単語のうちこの数まで (1 日の検索の回数を先読みで使い切らないため)
+    /// </summary>
+    public const int SearchAhead = 5;
 
     private readonly VocabClipSource _source;
     private readonly IVocabClipStorage _storage;
@@ -177,8 +182,8 @@ public class VocabClipPrefetcher
             }
             missing = Missing(missing, _nowUtc());
 
-            // 4. 残りはその場で検索する
-            foreach (var w in missing)
+            // 4. 残りのうち、すぐ出る単語だけその場で検索する (それより先は、出る順が近づいてから)
+            foreach (var w in missing.Where(w => upcoming.IndexOf(w) < SearchAhead))
             {
                 if (_stopped) return false;
                 var (status, _) = await _source.GetAsync(w, allowSearch: true);

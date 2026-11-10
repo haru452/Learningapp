@@ -14,7 +14,7 @@ using UnityEngine.UI;
 /// </summary>
 public class VocabManager : MonoBehaviour
 {
-    public static readonly Color SelectedColor = new Color(0.31f, 0.27f, 0.90f, 1f);
+    public static readonly Color SelectedColor = UiTheme.SurfaceRaised;
 
     [Header("API Keys (空なら ApiSecrets.json の値)")]
     [SerializeField] private string geminiModel = "gemini-3.8-flash";
@@ -144,7 +144,8 @@ public class VocabManager : MonoBehaviour
         _pixabay = new PixabayClient(secrets.pixabayApiKey);
     }
 
-    private PixabayClient _pixabay;   // 単語カードの裏の画像 (キーが無ければ画像は出さない)
+    private PixabayClient _pixabay;
+    private VocabSearchLimitRow _limitRow;   // Settings の「今日の動画の検索」と Reset   // 単語カードの裏の画像 (キーが無ければ画像は出さない)
 
     // シーンを組み立て直す前 (Videos の部品が無い) は動画の機能を使わない
     private bool VideosEnabled => videosButton != null && videosPanel != null;
@@ -181,12 +182,57 @@ public class VocabManager : MonoBehaviour
     }
 
     // 呼ぶたびに確かめる (途中でログイン・ログアウトしてもよい)
+    /// <summary>「Word 3 / 10」のすぐ下に「Previous word」のボタンの行を作る (学習中で、戻れるときだけ出る)</summary>
+    private Button CreateBackButton()
+    {
+        if (progressText == null) return null;
+        var row = UiStyle.NewUi("BackRow", progressText.transform.parent);
+        row.transform.SetSiblingIndex(progressText.transform.GetSiblingIndex() + 1);
+        UiStyle.Size(row, UiTheme.MinTouch);
+        UiStyle.Row(row, UiTheme.Gap);
+        var go = UiStyle.NewUi("BackButton", row.transform);
+        var button = go.AddComponent<Button>();
+        UiStyle.Size(go, -1, 0, 360, 0);
+        var label = UiStyle.NewText("Label", go.transform, progressText.font, "Previous word", UiTheme.BodySize, UiTheme.Text, FontStyles.Bold);
+        UiStyle.Stretch(label.transform);
+        UiStyle.Secondary(button);
+        UiStyle.Size(UiStyle.NewUi("Spacer", row.transform), -1, 0, -1, 1);
+        row.SetActive(false);
+        return button;
+    }
+
+    /// <summary>
+    /// タブの行・Sound / Say it の行などを、決めた高さのままにする。
+    /// 横に並べる行は「余りの高さがほしい」と伝えるので、何もしないとカードや下のパネルと高さを半分ずつ取り合い、
+    /// タブやボタンがとても大きくなる。シーンを組み立て直していなくても直るように、起動時にここでも 0 にする
+    /// </summary>
+    private void KeepRowsCompact()
+    {
+        var rows = new[]
+        {
+            todayTab != null ? todayTab.transform.parent : null,     // Today / Words / Settings
+            soundButton != null ? soundButton.transform.parent : null, // Sound / Say it / Videos
+            levelPickRow != null ? levelPickRow.transform : null,
+            ratingRow != null ? ratingRow.transform : null,
+            startButton != null ? startButton.transform : null,
+        };
+        foreach (var row in rows)
+        {
+            if (row == null) continue;
+            var le = row.GetComponent<LayoutElement>();
+            if (le == null) le = row.gameObject.AddComponent<LayoutElement>();
+            le.flexibleHeight = 0;
+            if (le.preferredHeight < UiTheme.MinTouch) le.preferredHeight = UiTheme.MinTouch;   // 48dp より小さくしない
+        }
+    }
+
     /// <summary>ほかの機能と同じく、前回のログインがまだ戻っていなければ戻してから答える</summary>
     private async Task<bool> CloudReadyAsync() =>
         supabase != null && supabase.IsConfigured && await supabase.EnsureSignedInAsync();
 
     private void Start()
     {
+        KeepRowsCompact();
         VocabVideosView videos = null;
         if (VideosEnabled)
         {
@@ -207,7 +253,7 @@ public class VocabManager : MonoBehaviour
             SayButton = sayButton, SayLabel = sayLabel, RatingRow = ratingRow, RatingButtons = ratingButtons, RatingLabels = ratingLabels,
             RatingHint = ratingHint, SummaryScroll = summaryScroll, SummaryContent = summaryContent, SummaryRowTemplate = summaryRowTemplate,
             RescoreButton = rescoreButton, WeakButton = weakButton, LevelUpButton = levelUpButton, LevelUpLabel = levelUpLabel,
-            VideosButton = videosButton,
+            VideosButton = videosButton, BackButton = CreateBackButton(),
         }, videos);
         if (_pixabay != null && _pixabay.IsConfigured && cardArea != null && soundButton != null)
             _today.SetCardImage(new VocabCardImageView(cardArea, soundButton.transform.parent, _pixabay, cardText != null ? cardText.font : null,
@@ -222,6 +268,9 @@ public class VocabManager : MonoBehaviour
         {
             LevelButtons = settingsLevelButtons, SizeButtons = sizeButtons, RetentionButtons = retentionButtons, CreditText = creditText,
         });
+        if (VideosEnabled && _clipStorage != null && settingsPanel != null)
+            _limitRow = new VocabSearchLimitRow(settingsPanel, creditText != null ? creditText.transform : null,
+                creditText != null ? creditText.font : null, _clipStorage, () => _prefetcher?.Kick());
 
         if (todayTab != null) todayTab.onClick.AddListener(() => ShowTab(0));
         if (wordsTab != null) wordsTab.onClick.AddListener(() => ShowTab(1));
@@ -257,6 +306,7 @@ public class VocabManager : MonoBehaviour
         if (todayPanel != null) todayPanel.SetActive(tab == 0);
         if (wordsPanel != null) wordsPanel.SetActive(tab == 1);
         if (settingsPanel != null) settingsPanel.SetActive(tab == 2);
+        if (tab == 2) _limitRow?.Refresh();
         Highlight(todayTab, tab == 0);
         Highlight(wordsTab, tab == 1);
         Highlight(settingsTab, tab == 2);
@@ -275,6 +325,8 @@ public class VocabManager : MonoBehaviour
         if (b == null || b.image == null) return;
         if (!_normalColors.ContainsKey(b)) _normalColors[b] = b.image.color;
         b.image.color = on ? SelectedColor : _normalColors[b];
+        var label = b.GetComponentInChildren<TMP_Text>(true);
+        if (label != null) label.color = on ? UiTheme.Text : UiTheme.SubText;
     }
 }
 
@@ -333,6 +385,33 @@ public class VocabContext
             foreach (var d in e.Definitions.Take(maxDefs)) sb.Append("<size=85%>- ").Append(Esc(d)).Append("</size>\n");
         }
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// 品詞ごとの例文 (名詞と動詞がある語なら、両方の例文)。辞書の見出しの順で、同じ品詞の見出しはまとめる。
+    /// 例文の無い品詞は出さない。品詞は maxPos まで、例文は品詞ごとに perPos まで
+    /// </summary>
+    public static List<(string pos, List<string> examples)> ExamplesByPos(DictionaryResult r, int perPos = 2, int maxPos = 4)
+    {
+        var result = new List<(string pos, List<string> examples)>();
+        if (r == null || !r.Found) return result;
+        foreach (var e in r.Entries)
+        {
+            if (e == null || e.Examples == null) continue;
+            string pos = (e.Pos ?? "").Trim();
+            int i = result.FindIndex(g => g.pos == pos);
+            if (i < 0)
+            {
+                if (result.Count >= maxPos) continue;
+                result.Add((pos, new List<string>()));
+                i = result.Count - 1;
+            }
+            foreach (var ex in e.Examples)
+                if (result[i].examples.Count < perPos && !string.IsNullOrWhiteSpace(ex) && !result[i].examples.Contains(ex))
+                    result[i].examples.Add(ex);
+        }
+        result.RemoveAll(g => g.examples.Count == 0);
+        return result;
     }
 
     public static string Esc(string s) => (s ?? "").Replace("<", "<​");

@@ -134,7 +134,8 @@ public partial class DiaryManager
         catch (Exception e)
         {
             Debug.LogException(e);
-            SetStatus("Error: " + FirstLine(e.Message) + "  (You can retry the correction)");
+            if (!SaveForLater(e))
+                SetStatus("Error: " + FirstLine(e.Message) + "  (You can retry the correction)");
         }
         finally
         {

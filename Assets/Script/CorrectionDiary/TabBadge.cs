@@ -27,4 +27,36 @@ public static class TabBadge
         score.HasValue
             ? "Topic: graded — " + score.Value + " / 100"
             : "Topic: grading failed — open Topic and tap Retry";
+
+    /// <summary>シャドーイングの判定のトーストの文。score が null なら判定できなかったとき</summary>
+    public static string ShadowMessage(int? score) =>
+        score.HasValue
+            ? "Shadowing: checked — " + score.Value + "%"
+            : "Shadowing: could not check — open Repeat";
+
+    /// <summary>Android でトーストを出す (ほかの環境ではログだけ)</summary>
+    public static void ShowToast(string message)
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            using (var player = new UnityEngine.AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            {
+                var activity = player.GetStatic<UnityEngine.AndroidJavaObject>("currentActivity");
+                activity.Call("runOnUiThread", new UnityEngine.AndroidJavaRunnable(() =>
+                {
+                    using (var toast = new UnityEngine.AndroidJavaClass("android.widget.Toast"))
+                    using (var t = toast.CallStatic<UnityEngine.AndroidJavaObject>("makeText", activity, message, 1))   // 1 = LENGTH_LONG
+                        t.Call("show");
+                }));
+            }
+        }
+        catch (System.Exception e)
+        {
+            UnityEngine.Debug.LogWarning("[TabBadge] could not show a toast: " + e.Message);
+        }
+#else
+        UnityEngine.Debug.Log("[TabBadge] " + message);
+#endif
+    }
 }
