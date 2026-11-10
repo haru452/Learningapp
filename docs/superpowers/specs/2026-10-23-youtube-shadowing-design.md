@@ -54,7 +54,7 @@
 
 ## 3. 判定とアドバイス
 
-- 録音 (16 kHz モノラル) を **180 秒ずつ** WAV に分け、それぞれ `GeminiApiClient.TranscribeShadowingAsync(byte[] wav, string referenceExcerpt)` に送る。
+- 録音 (16 kHz モノラル) を **60 秒ずつ** WAV に分け (180 秒だとスマホの回線で時間切れになりやすかったため。返事が来ないときは 2 回まで送り直す。それでも失敗したら録音を残し、「Check again」で失敗した区切りから判定し直す)、それぞれ `GeminiApiClient.TranscribeShadowingAsync(byte[] wav, string referenceExcerpt)` に送る。
   返事: `{"transcript": "...", "notes": ["..."]}` (notes = 発音・リズム・遅れについての短い気付き、0〜3 個、英語)。
   `referenceExcerpt` はお手本の全文 (長ければ 6000 文字まで) で、聞き取りの手がかりにだけ使い、書き起こしを直さないよう指示する。
 - 書き起こしをつなげ、`ShadowScorer.Score(sentences, heard)` (今のもの) で照合。

@@ -44,7 +44,7 @@ public class YouTubeSearchClient
 
     [Serializable] private class VideosResponse { public VideoItem[] items; }
     [Serializable] private class VideoItem { public string id; public Snippet snippet; public ContentDetails contentDetails; }
-    [Serializable] private class Snippet { public string title; public string channelTitle; }
+    [Serializable] private class Snippet { public string title; public string channelTitle; public string defaultAudioLanguage; }
     [Serializable] private class ContentDetails { public string duration; }
 
     /// <summary>
@@ -142,6 +142,7 @@ public class YouTubeSearchClient
     /// <summary>
     /// 単語帳用: 単語を "..." で囲んで検索し、動画を検索の順のまま返す (見つからなければ空)。
     /// 字幕付き・埋め込み可・英語・セーフサーチ。タイトルとチャンネル名は videos.list (1回) で補う。長さは使わない (0)。
+    /// relevanceLanguage は「優先」だけなので、音声の言語が英語以外と登録された動画はここで外す。
     /// HttpException はそのまま投げる (上限かどうかは IsQuotaExceeded で見分ける)。
     /// </summary>
     public async Task<List<Video>> SearchWordVideosAsync(string word)
@@ -171,9 +172,18 @@ public class YouTubeSearchClient
         foreach (string id in ids)   // 検索の順のまま
         {
             byId.TryGetValue(id, out VideoItem it);
+            if (!IsEnglishAudio(it?.snippet?.defaultAudioLanguage)) continue;
             result.Add(new Video { id = id, title = it?.snippet?.title ?? "", channel = it?.snippet?.channelTitle ?? "" });
         }
         return result;
+    }
+
+    /// <summary>音声の言語が英語 (en, en-*) か、登録されていない (わからないので残し、字幕で確かめる) なら true</summary>
+    public static bool IsEnglishAudio(string language)
+    {
+        if (string.IsNullOrEmpty(language)) return true;
+        string l = language.ToLowerInvariant();
+        return l == "en" || l.StartsWith("en-", StringComparison.Ordinal);
     }
 
     /// <summary>1日の利用枠を使い切った (403 で quotaExceeded / dailyLimitExceeded) かどうか</summary>

@@ -77,7 +77,8 @@ public static class VocabClipStore
 /// <summary>persistentDataPath/vocab/clips/&lt;単語&gt;.json と vocab/clip_search.json に読み書きする</summary>
 public class VocabClipFileStorage : IVocabClipStorage
 {
-    private static string ClipsDir => Path.Combine(VocabStore.Root, "clips");
+    // clips_v2: 英語以外の動画を外す前 (clips) の保存は使わず、調べ直す
+    private static string ClipsDir => Path.Combine(VocabStore.Root, "clips_v2");
     private static string LogPath => Path.Combine(VocabStore.Root, "clip_search.json");
     private static string EntryPath(string word) => Path.Combine(ClipsDir, VocabStore.SafeName(word) + ".json");
 

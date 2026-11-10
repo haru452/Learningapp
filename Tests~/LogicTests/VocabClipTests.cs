@@ -95,6 +95,16 @@ public static partial class LogicTests
         Check(YouTubeTranscriptClient.PickTrackUrl("{\"videoDetails\":{}}") == null, "yt pick: no captions -> null");
         Check(YouTubeTranscriptClient.PickTrackUrl("not json") == null, "yt pick: not json -> null");
         Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("en-GB", null), Track("en-US", null))) == "https://x.test/t?lang=en-GB", "yt pick: first human en-*");
+        // 英語以外の動画: 自動字幕 (話している言語) が英語でなければ、英語の字幕 (翻訳) があっても使わない
+        Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("en", null), Track("ja", "asr"))) == null, "yt pick: ja speech + en subtitles -> null");
+        Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("ko", null), Track("en", null), Track("ko", "asr"))) == null, "yt pick: ko speech -> null");
+        Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("en", null), Track("en", "asr"))) == "https://x.test/t?lang=en", "yt pick: en speech + en human -> human");
+        Check(YouTubeTranscriptClient.PickTrackUrl(Wrap(Track("ja", null), Track("en-US", "asr"))) == "https://x.test/t?lang=en-US", "yt pick: en speech + ja subtitles -> en asr");
+
+        // 検索: 音声の言語が英語以外の動画は外す (言語が登録されていなければ残し、字幕で確かめる)
+        Check(YouTubeSearchClient.IsEnglishAudio(null) && YouTubeSearchClient.IsEnglishAudio(""), "yt audio: unknown -> keep");
+        Check(YouTubeSearchClient.IsEnglishAudio("en") && YouTubeSearchClient.IsEnglishAudio("en-US") && YouTubeSearchClient.IsEnglishAudio("EN-gb"), "yt audio: en, en-* -> keep");
+        Check(!YouTubeSearchClient.IsEnglishAudio("ja") && !YouTubeSearchClient.IsEnglishAudio("es-419") && !YouTubeSearchClient.IsEnglishAudio("eng"), "yt audio: ja, es-419, eng -> drop");
 
         var lines = YouTubeTranscriptClient.ParseTimedText(File.ReadAllText(Path.Combine(dir, "timedtext.xml")));
         Check(lines.Count == 3, "yt timedtext: 3 lines, got " + lines.Count);

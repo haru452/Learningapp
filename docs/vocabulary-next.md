@@ -20,6 +20,28 @@ GitHub の Learningapp では、merge 先は `main` ではなく `develop` (main
 - [ ] よければ Claude に「commit して push して」と頼む (フォントの `LiberationSans SDF - Fallback.asset` と `.claude/` は入れない)
 - [ ] 残りの確認は `docs/vocabulary-checklist.md` の 3〜5 (Words・Settings・まとめ・連続記録・機内モード・merge)
 
+## 1.5 11/9 に直したことを確かめる (まだ動かしていない・commit していない)
+
+直したこと:
+- 通知: 連続記録が切れそうな日の 21 時に「記録が切れちゃうよ」と通知する (`StudyReminder.cs`, `StudyReminderPlan.cs`)
+- Vocab: 学習中にほかのタブへ移って戻っても、同じカードの続きから学習できる (`VocabManager.cs`, `VocabTodayView.cs`)
+- シャドーイング: 判定 (Checking...) で「HTTP 0」が出ていた。録音を 1 分ずつに分けて送り、返事が来ないときは 2 回まで送り直す
+- シャドーイング: それでも失敗したら録音を残し、「Check again」で失敗した区切りから判定だけやり直す (`ShadowSession.cs`)
+
+手順:
+- [ ] Unity を開いて、Console にコンパイルエラーが出ないこと (Unity のコンパイラーで Android・iOS とも通ることは確かめた)
+- [ ] Vocab: 学習の途中で別のタブ → Vocab に戻る → 同じカード・同じ進み具合から続く
+- [ ] シャドーイング (スマホ): 5 分くらいの動画を最後まで → 「Checking... (1 / 5)」のように区切りが増えている → まとめが出る
+- [ ] シャドーイング (スマホ): Wi-Fi・モバイル通信を切って最後まで → 失敗して「Check again」が出る → 通信をつないで押す → まとめが出る
+- [ ] シャドーイング: 判定の途中でほかのタブへ移る → 戻ると「Check again」で続きを判定できる
+- [ ] 通知 (スマホ): Unity でパッケージ (Mobile Notifications 2.4.3) が入ったことを確かめて APK を作り直す → 起動すると「通知を許可しますか」が出る
+- [ ] 通知 (スマホ): 練習しないで 21 時を待つ → 「記録が切れちゃうよ」が届く (今日やった日は届かない)
+  - 早く試したいときは `StudyReminderPlan.Hour` を一時的に近い時刻に変える
+- [ ] タブ: 再生するだけ (起動時に自動で作る。シーンの保存はいらない)
+- [ ] タブ: 下が Diary / Topic / Vocab / Modes の 4 つ。Modes でシートが下から出る → 7 枚のカードから Practice・Summary・Repeat・Talk も開ける。今いる画面のカードに「Now」
+- [ ] タブ: 背景・Close・Android の戻るボタンでシートが閉じる。Topic の採点が終わると下の Topic タブとカードに ● が付く
+- [ ] よければ Claude に「commit して」と頼む
+
 ## 2. YouGlish のような「動画の場面」 (実装済み・確認待ち)
 
 確認の手順は `docs/vocab-video-clips-check.md`。

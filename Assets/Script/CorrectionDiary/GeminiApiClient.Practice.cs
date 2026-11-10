@@ -1,0 +1,375 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using UnityEngine;
+
+/// <summary>
+/// GeminiApiClient の続き: Versant 対策の要約の採点と、お題スピーキング (お題・採点・発音のコメント)。
+/// </summary>
+public partial class GeminiApiClient
+{
+    // ------------------------------------------------------------
+    // Versant 対策: 動画の要約を採点する
+    // ------------------------------------------------------------
+    // 項目ごとの満点 (合計 100)
+    public const int ContentMax = 50;        // 内容: 要点を押さえているか・間違いが無いか
+    public const int OrganizationMax = 25;   // 構成: 話の順序・つながり
+    public const int LanguageMax = 25;       // 文法・語彙
+
+    [Serializable]
+    public class SummaryGrade
+    {
+        public string transcript;        // 音声を送った場合の文字起こし (テキストを送った場合は空)
+        public int contentScore;         // 0〜ContentMax
+        public int organizationScore;    // 0〜OrganizationMax
+        public int languageScore;        // 0〜LanguageMax
+        public int score;                // 合計 (0〜100)。Gemini には出させず、アプリで計算する
+        public string referenceSummary;  // お手本の要約
+        public string goodPoints;        // 押さえられていたポイント
+        public string missedPoints;      // 抜けていたポイント・誤解
+        public string languageFeedback;  // 文法・言い回しの指摘
+        public string improvedSummary;   // ユーザーの要約を活かした改善例
+        public Mistake[] mistakes;       // 文法・語の使い方のミス (集計用)
+    }
+
+    private const string SummaryGradePrompt =
+        "You are an examiner preparing an English learner for the Versant English test " +
+        "(similar to the \"Story Retelling\" / \"Summary\" tasks).\n" +
+        "The learner watched the attached video once, then had {0} seconds to summarize it out loud in English.\n" +
+        "{1}\n" +
+        "Evaluate the summary against the video. Score each part separately with an integer:\n" +
+        "- \"contentScore\" (0-{2}): are the main idea and the key points of the video captured, " +
+        "and is anything stated wrongly? Missing the main idea or saying something false costs the most.\n" +
+        "- \"organizationScore\" (0-{3}): is it easy to follow? E.g. the main idea first, then supporting points " +
+        "in a logical order, with linking words (first, then, because, so...). Ignore hesitations like \"um\".\n" +
+        "- \"languageScore\" (0-{4}): grammar accuracy and the range and correctness of vocabulary.\n" +
+        "Remember it was spoken under time pressure, so do not expect a complete summary for a high score.\n" +
+        "- \"referenceSummary\": a model summary of the video in 3-4 simple sentences that could be said in {0} seconds.\n" +
+        "- \"goodPoints\": the key points the learner covered, as short bullet lines starting with \"- \".\n" +
+        "- \"missedPoints\": important points the learner missed or got wrong, as short bullet lines starting with \"- \".\n" +
+        "- \"languageFeedback\": at most 3 grammar or wording corrections, each like \"I has -> I had (past tense)\". " +
+        "Ignore punctuation and capitalization.\n" +
+        "- \"improvedSummary\": rewrite the learner's own summary as natural, correct English, " +
+        "keeping their structure but fixing errors and adding the most important missing point.\n" +
+        "- " + MistakesInstruction + "\n" +
+        "Write all feedback in simple English. If the learner said nothing meaningful, give 0 for every score " +
+        "and still fill referenceSummary.";
+
+    private const string SpokenSummaryNote =
+        "Their speech was transcribed automatically, so punctuation may be missing and a word may occasionally be " +
+        "misrecognized. Set \"transcript\" to an empty string.\n\nThe learner's summary:\n";
+
+    private const string AudioSummaryNote =
+        "Their spoken summary is the attached audio. First set \"transcript\" to EXACTLY what they said, " +
+        "keeping any grammar mistakes.";
+
+    public const string SummaryGradeSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{" +
+        "\"transcript\":{\"type\":\"STRING\"}," +
+        "\"contentScore\":{\"type\":\"INTEGER\"}," +
+        "\"organizationScore\":{\"type\":\"INTEGER\"}," +
+        "\"languageScore\":{\"type\":\"INTEGER\"}," +
+        "\"referenceSummary\":{\"type\":\"STRING\"}," +
+        "\"goodPoints\":{\"type\":\"STRING\"}," +
+        "\"missedPoints\":{\"type\":\"STRING\"}," +
+        "\"languageFeedback\":{\"type\":\"STRING\"}," +
+        "\"improvedSummary\":{\"type\":\"STRING\"}," +
+        MistakesProperty + "}," +
+        "\"required\":[\"transcript\",\"contentScore\",\"organizationScore\",\"languageScore\"," +
+        "\"referenceSummary\",\"goodPoints\",\"missedPoints\",\"languageFeedback\",\"improvedSummary\",\"mistakes\"]}";
+
+    /// <summary>
+    /// YouTube 動画をお手本に、ユーザーが話した要約を採点する。
+    /// spokenSummary (内蔵の音声認識の結果) か wav (録音) のどちらかを渡す。
+    /// </summary>
+    public async Task<SummaryGrade> GradeVideoSummaryAsync(
+        string youtubeUrl, int timeLimitSeconds, string spokenSummary, byte[] wav = null)
+    {
+        string note = wav != null ? AudioSummaryNote : SpokenSummaryNote + spokenSummary;
+        string prompt = SummaryGradePrompt
+            .Replace("{0}", timeLimitSeconds.ToString())
+            .Replace("{1}", note)
+            .Replace("{2}", ContentMax.ToString())
+            .Replace("{3}", OrganizationMax.ToString())
+            .Replace("{4}", LanguageMax.ToString());
+
+        // 動画はプロンプトより前に置くのが推奨されている
+        string tail = "," + TextPart(prompt) + (wav != null ? "," + AudioPart(wav) : "");
+
+        // 要約の採点に必要なのは主に音声なので、映像は低画質・少ないコマ数で読ませてトークンを節約する
+        // (1分あたりのトークン上限 TPM に引っかかりにくくする)。
+        // もしこの設定が受け付けられなかった (400) ときは、今までどおりの送り方でやり直す。
+        string innerJson;
+        try
+        {
+            innerJson = await GeneratePartsAsync(
+                YouTubePart(youtubeUrl, VideoFps) + tail, SummaryGradeSchema,
+                extraConfig: "\"mediaResolution\":\"MEDIA_RESOLUTION_LOW\",\"temperature\":0.2");
+        }
+        catch (HttpException e) when (e.StatusCode == 400)
+        {
+            Debug.LogWarning("[Gemini] Light video options were rejected. Retrying without them: " + e.Message);
+            innerJson = await GeneratePartsAsync(YouTubePart(youtubeUrl) + tail, SummaryGradeSchema);
+        }
+        var result = JsonUtility.FromJson<SummaryGrade>(innerJson);
+        if (result == null) throw new Exception("Could not parse Gemini response: " + innerJson);
+        if (wav == null) result.transcript = spokenSummary;
+
+        // 満点を超える値が返ってきても、範囲に収めてから合計する
+        result.contentScore = Mathf.Clamp(result.contentScore, 0, ContentMax);
+        result.organizationScore = Mathf.Clamp(result.organizationScore, 0, OrganizationMax);
+        result.languageScore = Mathf.Clamp(result.languageScore, 0, LanguageMax);
+        result.score = result.contentScore + result.organizationScore + result.languageScore;
+        result.mistakes = CleanMistakes(result.mistakes);
+        return result;
+    }
+
+    // ------------------------------------------------------------
+    // お題スピーキング: お題を作る・採点する・発音にコメントする
+    // ------------------------------------------------------------
+    // 項目ごとの満点 (合計 100)。要約より「構成」の比重が大きい
+    public const int TopicContentMax = 40;        // 内容: お題に答え、理由や例があるか
+    public const int TopicOrganizationMax = 30;   // 構成: 結論→理由→例の順、つなぎの言葉
+    public const int TopicLanguageMax = 30;       // 文法・語彙
+
+    [Serializable]
+    public class TopicPrompt
+    {
+        public string kind;    // exam / daily / work
+        public string topic;   // お題 (英語)
+        public string hint;    // 話の組み立てのヒント (1文)
+    }
+
+    [Serializable]
+    public class TopicGrade
+    {
+        public string goodPoints;        // 良かった点 ("- " で始まる箇条書き)
+        public string fixPoints;         // 直す点 ("- " で始まる箇条書き)
+        public int contentScore;         // 0〜TopicContentMax
+        public int organizationScore;    // 0〜TopicOrganizationMax
+        public int languageScore;        // 0〜TopicLanguageMax
+        public int score;                // 合計 (アプリで計算する)
+        public string corrected;         // 話した内容を正しく直したもの
+        public string natural;           // 同じ内容を、ネイティブらしい言い方で
+        public string[] phrases;         // 次に使える表現 (3つ)
+        public Mistake[] mistakes;       // 文法・語の使い方のミス
+        public string[] readAloud;       // 言い直し用: 直しが入った文 (最大3)
+        public string transcript;        // 録音を直接採点したとき: 聞いたままの文字起こし
+    }
+
+    [Serializable]
+    private class PronunciationResult
+    {
+        public string comment;
+    }
+
+    private const string TopicPromptPrompt =
+        "You create speaking practice topics for an English learner (intermediate level).\n" +
+        "Kind of topic: {0}\n" +
+        "- exam: an opinion or explanation question like in the Versant or IELTS speaking test " +
+        "(e.g. \"Do you think working from home is better than working in an office? Why?\").\n" +
+        "- daily: a personal, everyday question about experiences, habits or preferences " +
+        "(e.g. \"Tell me about a place you like to visit on weekends.\").\n" +
+        "- work: a business or job-interview question " +
+        "(e.g. \"Describe a time you solved a problem at work or school.\").\n" +
+        "{1}{2}" +
+        "The learner will answer out loud in {3} seconds, so make the topic answerable in that time.\n" +
+        "Return \"kind\" (the same kind), \"topic\" (one question in simple English) and " +
+        "\"hint\" (one short sentence on how to structure the answer, e.g. \"Give your opinion, then two reasons and an example.\").";
+
+    public const string TopicPromptSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{" +
+        "\"kind\":{\"type\":\"STRING\"}," +
+        "\"topic\":{\"type\":\"STRING\"}," +
+        "\"hint\":{\"type\":\"STRING\"}}," +
+        "\"required\":[\"kind\",\"topic\",\"hint\"]}";
+
+    private const string TopicGradePrompt =
+        "You are an English speaking coach. The learner was given this topic ({0}) and answered out loud " +
+        "in {1} seconds without preparation:\n\"{2}\"\n\n" +
+        "Their answer was transcribed automatically, so punctuation may be missing and a word may occasionally " +
+        "be misrecognized. Do not count punctuation or capitalization as mistakes.\n{3}\n" +
+        "First write the feedback, then decide the scores from it:\n" +
+        "- \"goodPoints\": what they did well, as short bullet lines starting with \"- \".\n" +
+        "- \"fixPoints\": the most important things to improve (content, structure, grammar), " +
+        "as short bullet lines starting with \"- \".\n" +
+        "- \"contentScore\" (0-{4}): {4}-{5} = answers the topic fully with clear reasons and an example; " +
+        "{6}-{7} = answers it but the reasons or examples are weak or unclear; 1-{8} = only partly answers it; " +
+        "0 = says nothing meaningful.\n" +
+        "- \"organizationScore\" (0-{9}): {9}-{10} = clear structure (main point first, then reasons and examples) " +
+        "with linking words (first, also, because, for example, so); {11}-{12} = some structure but jumps around; " +
+        "1-{13} = hard to follow. Ignore hesitations like \"um\".\n" +
+        "- \"languageScore\" (0-{9}): {9}-{10} = few mistakes and varied vocabulary; {11}-{12} = several mistakes " +
+        "but the meaning is clear; 1-{13} = many mistakes that make it hard to understand.\n" +
+        "Remember it was spoken under time pressure, so do not expect perfect English for a high score.\n" +
+        "- \"corrected\": their answer rewritten as correct English, keeping their words and ideas as much as possible.\n" +
+        "- \"natural\": the same ideas said the way a native speaker would naturally say them.\n" +
+        "- \"phrases\": exactly 3 useful phrases they could use next time for this kind of topic.\n" +
+        "- " + MistakesInstruction + "\n" +
+        "- \"readAloud\": up to 3 sentences from \"corrected\" that contain a correction, for the learner to read aloud.\n" +
+        "Write all feedback in simple English. If the learner said nothing meaningful, give 0 for every score " +
+        "and empty lists.\n\nThe learner's answer:\n";
+
+    private const string WeakPointsNote =
+        "This learner often makes these kinds of mistakes: {0}. Check for them carefully and do not miss any.\n";
+
+    private const string TopicGradeProperties =
+        "\"goodPoints\":{\"type\":\"STRING\"}," +
+        "\"fixPoints\":{\"type\":\"STRING\"}," +
+        "\"contentScore\":{\"type\":\"INTEGER\"}," +
+        "\"organizationScore\":{\"type\":\"INTEGER\"}," +
+        "\"languageScore\":{\"type\":\"INTEGER\"}," +
+        "\"corrected\":{\"type\":\"STRING\"}," +
+        "\"natural\":{\"type\":\"STRING\"}," +
+        "\"phrases\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}," +
+        MistakesProperty + "," +
+        "\"readAloud\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}";
+
+    private const string TopicGradeFields =
+        "\"goodPoints\",\"fixPoints\",\"contentScore\",\"organizationScore\",\"languageScore\"," +
+        "\"corrected\",\"natural\",\"phrases\",\"mistakes\",\"readAloud\"";
+
+    public const string TopicGradeSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{" + TopicGradeProperties + "}," +
+        "\"propertyOrdering\":[" + TopicGradeFields + "]," +
+        "\"required\":[" + TopicGradeFields + "]}";
+
+    /// <summary>録音をそのまま採点するとき: 最初に聞いたままの transcript を書かせる (文字起こしと採点を 1 回の通信で)</summary>
+    public const string TopicGradeAudioSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{\"transcript\":{\"type\":\"STRING\"}," + TopicGradeProperties + "}," +
+        "\"propertyOrdering\":[\"transcript\"," + TopicGradeFields + "]," +
+        "\"required\":[\"transcript\"," + TopicGradeFields + "]}";
+
+    private const string TopicGradeAudioNote =
+        "The learner's answer is the attached audio (it is not written below). First write \"transcript\": " +
+        "exactly what they said, word for word, keeping every grammar mistake (do not correct anything; leave out " +
+        "only fillers like \"um\"). If you cannot hear any English, write an empty string. " +
+        "Then grade that transcript as described above.";
+
+    private const string PronunciationPrompt =
+        "The attached audio is an English learner reading this sentence aloud:\n\"{0}\"\n" +
+        "In 2-3 short sentences of simple English, say which words were hard to understand and how to say them " +
+        "more clearly. If it was clear, say so and give one small tip.\n" +
+        "Also give 0 to 2 \"sounds\" the learner had trouble with, using these codes: " +
+        "th (think/this), r_l (R vs L), v_b (V vs B), f_h (F vs H), s_sh (S vs SH), vowel (cat/cut/cot), " +
+        "long_short (ship/sheep), final_consonant (dropped final consonants), extra_vowel (adding vowels after consonants), " +
+        "stress (word stress). Use \"other\" with a short English otherName (for example \"Z sound\") only when none of these fits. " +
+        "Give an empty list if the pronunciation was clear.";
+
+    public const string PronunciationSchema =
+        "{\"type\":\"OBJECT\",\"properties\":{\"comment\":{\"type\":\"STRING\"}," +
+        "\"sounds\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"OBJECT\",\"properties\":{" +
+        "\"code\":{\"type\":\"STRING\",\"enum\":[\"th\",\"r_l\",\"v_b\",\"f_h\",\"s_sh\",\"vowel\",\"long_short\"," +
+        "\"final_consonant\",\"extra_vowel\",\"stress\",\"other\"]},\"otherName\":{\"type\":\"STRING\"}},\"required\":[\"code\"]}}}," +
+        "\"required\":[\"comment\"]}";
+
+    /// <summary>発音チェックの結果: アドバイスと、苦手な音 (最大 2)</summary>
+    public class PronunciationFeedback
+    {
+        public string Comment = "";
+        public List<SoundHit> Sounds = new List<SoundHit>();
+    }
+
+    /// <summary>
+    /// 発音チェックの返事を読む。知らないコード・名前が空のその他は落とし、最大 2 個。
+    /// Word は、読んだ文の中でつづりからも同じ音になる最初の語 (無ければ空)
+    /// </summary>
+    public static PronunciationFeedback ParsePronunciation(string json, string sentence)
+    {
+        var fb = new PronunciationFeedback();
+        if (!(MiniJson.Parse(json ?? "") is Dictionary<string, object> d)) return fb;
+        fb.Comment = TatoebaCatalog.Str(d, "comment").Trim();
+        if (!d.TryGetValue("sounds", out object arr) || !(arr is List<object> list)) return fb;
+        foreach (var o in list)
+        {
+            if (fb.Sounds.Count >= 2) break;
+            if (!(o is Dictionary<string, object> s)) continue;
+            string code = TatoebaCatalog.Str(s, "code").Trim();
+            if (!SoundTypes.IsKnown(code)) continue;
+            string label = code == SoundTypes.Other ? SoundTypes.NormalizeOtherName(TatoebaCatalog.Str(s, "otherName")) : "";
+            if (code == SoundTypes.Other && label.Length == 0) continue;
+            if (fb.Sounds.Any(x => x.Code == code && x.Label == label)) continue;
+            string word = code == SoundTypes.Other ? "" :
+                (sentence ?? "").Split(new[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(w => new string(w.ToLowerInvariant().Where(c => (c >= 'a' && c <= 'z') || c == '\'').ToArray()))
+                    .FirstOrDefault(w => SoundGuesser.IsCountable(w) && SoundGuesser.Guess(w).Contains(code)) ?? "";
+            fb.Sounds.Add(new SoundHit { Code = code, Label = label, Word = word });
+        }
+        return fb;
+    }
+
+    /// <summary>お題を1つ作る。weakTypes: 苦手なミスの種類 (それを使いやすいお題にする)。recentTopics: 最近のお題 (避ける)</summary>
+    public async Task<TopicPrompt> GenerateTopicAsync(string kind, IList<string> weakTypes, IList<string> recentTopics)
+    {
+        string weak = weakTypes != null && weakTypes.Count > 0
+            ? "Choose a topic where the learner will naturally need these grammar points: " +
+              string.Join(", ", weakTypes) + ".\n"
+            : "";
+        string recent = recentTopics != null && recentTopics.Count > 0
+            ? "Do not repeat or closely resemble these recent topics:\n- " +
+              string.Join("\n- ", recentTopics.Take(10)) + "\n"
+            : "";
+        int seconds = TopicCatalog.SecondsFor(kind);
+        string prompt = TopicPromptPrompt
+            .Replace("{0}", kind).Replace("{1}", weak).Replace("{2}", recent)
+            .Replace("{3}", seconds.ToString());
+
+        string innerJson = await GeneratePartsAsync(TextPart(prompt), TopicPromptSchema, "\"temperature\":1.0");
+        var result = JsonUtility.FromJson<TopicPrompt>(innerJson);
+        if (result == null || string.IsNullOrWhiteSpace(result.topic))
+            throw new Exception("Could not parse Gemini response: " + innerJson);
+        result.kind = kind;
+        result.topic = result.topic.Trim();
+        result.hint = (result.hint ?? "").Trim();
+        return result;
+    }
+
+    /// <summary>お題への答え (音声認識の結果) を採点・添削する。weakTypes: 苦手なミスの種類 (重点的に見る)</summary>
+    public Task<TopicGrade> GradeTopicAsync(string kind, string topic, int seconds, string spokenText, IList<string> weakTypes) =>
+        GradeTopicCoreAsync(kind, topic, seconds, spokenText, null, weakTypes);
+
+    /// <summary>
+    /// 答えの録音をそのまま採点する。文字起こしも同じ 1 回の通信で行い、結果の transcript に入れる
+    /// (文字起こしと採点を別々に頼むより、Gemini の使用回数が 1 回少ない)
+    /// </summary>
+    public Task<TopicGrade> GradeTopicAudioAsync(string kind, string topic, int seconds, byte[] wav, IList<string> weakTypes)
+    {
+        if (wav == null || wav.Length == 0) throw new ArgumentException("No recording.", nameof(wav));
+        return GradeTopicCoreAsync(kind, topic, seconds, null, wav, weakTypes);
+    }
+
+    private async Task<TopicGrade> GradeTopicCoreAsync(string kind, string topic, int seconds, string spokenText, byte[] wav,
+                                                       IList<string> weakTypes)
+    {
+        string weak = weakTypes != null && weakTypes.Count > 0
+            ? WeakPointsNote.Replace("{0}", string.Join(", ", weakTypes))
+            : "";
+        string prompt = TopicGradePrompt
+            .Replace("{0}", kind).Replace("{1}", seconds.ToString()).Replace("{2}", topic ?? "")
+            .Replace("{3}", weak)
+            .Replace("{4}", TopicContentMax.ToString()).Replace("{5}", (TopicContentMax - 5).ToString())
+            .Replace("{6}", (TopicContentMax - 6).ToString()).Replace("{7}", (TopicContentMax / 2).ToString())
+            .Replace("{8}", (TopicContentMax / 2 - 1).ToString())
+            .Replace("{9}", TopicOrganizationMax.ToString()).Replace("{10}", (TopicOrganizationMax - 5).ToString())
+            .Replace("{11}", (TopicOrganizationMax - 6).ToString()).Replace("{12}", (TopicOrganizationMax / 2).ToString())
+            .Replace("{13}", (TopicOrganizationMax / 2 - 1).ToString());
+
+        string innerJson = wav == null
+            ? await GeneratePartsAsync(TextPart(prompt + spokenText), TopicGradeSchema, "\"temperature\":0.2")
+            : await GeneratePartsAsync(TextPart(prompt + "(attached audio)\n\n" + TopicGradeAudioNote) + "," + AudioPart(wav),
+                                       TopicGradeAudioSchema, "\"temperature\":0.2", AudioGradeTimeoutSeconds);
+        var result = JsonUtility.FromJson<TopicGrade>(innerJson);
+        if (result == null) throw new Exception("Could not parse Gemini response: " + innerJson);
+        result.transcript = wav == null ? (spokenText ?? "").Trim() : (result.transcript ?? "").Trim();
+
+        result.contentScore = Mathf.Clamp(result.contentScore, 0, TopicContentMax);
+        result.organizationScore = Mathf.Clamp(result.organizationScore, 0, TopicOrganizationMax);
+        result.languageScore = Mathf.Clamp(result.languageScore, 0, TopicLanguageMax);
+        result.score = result.contentScore + result.organizationScore + result.languageScore;
+        result.phrases = (result.phrases ?? new string[0]).Where(p => !string.IsNullOrWhiteSpace(p)).Take(3).ToArray();
+        result.readAloud = (result.readAloud ?? new string[0]).Where(p => !string.IsNullOrWhiteSpace(p)).Take(3).ToArray();
+        result.mistakes = CleanMistakes(result.mistakes);
+        return result;
+    }
+}

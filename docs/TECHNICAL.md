@@ -313,6 +313,20 @@ flowchart TD
   リフレッシュトークンは1回しか使えないため、復元処理は複数の場所から呼ばれても**通信は1回だけ**になるようにしています。
 - アプリに置くのは Project URL と anon（publishable）キーだけです。**service_role キーは絶対に入れないでください。**
 
+### 下のタブと Modes シート（ModesSheet）
+
+- 画面の下のタブ（`BottomNavBar.cs`）は Diary / Topic / Vocab / Modes の 4 つ（Practice・Summary・Repeat・Talk は Modes から）。Modes で全部の機能のシート (2 列のカード) が開きます。上にあった元のタブは隠しています。
+- 下のタブを置くため、起動後に最初に表示したとき、各画面の `Canvas/Root`（Summary・Topic・Repeat・Vocab）の下の端をバーの上に、上の端を元のタブがあった所まで広げます（アンカーを変えるだけ。シーンは変えない）。Diary・Practice は位置が直接決めてある古い作りなので、そのまま。
+- Summary・Topic・Repeat・Talk のタブはシーンに残したまま隠してあり、カードを押すと `Button.onClick.Invoke()` で元のタブと同じ切り替えをします（画面の切り替え方は元のタブのまま）。
+- アプリの起動時に `ModesNav.cs` が自動で作ります（シーンファイルは変えない）。やめるときは `ModesNav.Enabled` を false に。
+- 隠したタブに付いた「●」(Topic の採点完了など) は、カードと Modes タブに写します。
+
+### スマホの通知（StudyReminder）
+
+- 連続記録があって今日まだ練習していない日の **21 時** に「記録が切れちゃうよ」と通知します（Unity の Mobile Notifications パッケージ。スマホの中で予約するので、通信もサーバーもいりません）。
+- `DiaryStreakView.Refresh()` のたびに、次の通知を 1 つだけ予約し直します。今日やったら明日の 21 時、記録がなければ予約しません。時刻の計算は `StudyReminderPlan.cs`（テストあり）。
+- 初めて予約するときに「通知を許可しますか」が出ます（Android 13 以上・iOS）。Editor では何もしません。
+
 ### リマインダー Worker（ReminderClient）
 
 - Worker のコードは [my-project-connected-to-discord](https://github.com/haru452/my-project-connected-to-discord) にあります。

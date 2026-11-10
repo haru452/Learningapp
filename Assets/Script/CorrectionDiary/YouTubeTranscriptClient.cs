@@ -60,6 +60,8 @@ public class YouTubeTranscriptClient
     /// <summary>
     /// player の応答 JSON から英語字幕の URL を選ぶ。人の字幕 (kind なし) を優先、無ければ自動 (asr)。
     /// 人の英語が複数なら "en" ちょうどを優先。PoToken が要る URL (&amp;exp=xpe) は使わない。
+    /// 自動字幕 (asr) は話している言語で作られるので、自動字幕があって英語のものが無ければ英語の動画ではない → null
+    /// (日本語の動画に付いた英語の字幕 (翻訳) を使わないため)。
     /// URL から &amp;fmt=... を除く。無ければ null。
     /// </summary>
 
@@ -73,14 +75,16 @@ public class YouTubeTranscriptClient
         if (tracks == null) return null;
 
         string human = null, humanExact = null, auto = null;
+        bool otherSpeech = false;   // 英語以外の自動字幕がある
         foreach (var t in tracks)
         {
             var d = t as Dictionary<string, object>;
             if (d == null) continue;
             string lang = JsonGet.Str(d, "languageCode");
+            if (JsonGet.Str(d, "kind") == "asr" && !IsEnglish(lang)) otherSpeech = true;
             string url = JsonGet.Str(d, "baseUrl");
             if (url.Length == 0 || url.Contains("&exp=xpe")) continue;
-            if (!(lang == "en" || lang.StartsWith("en-", StringComparison.Ordinal))) continue;
+            if (!IsEnglish(lang)) continue;
 
             string kind = JsonGet.Str(d, "kind");
             if (kind.Length == 0)
@@ -93,6 +97,7 @@ public class YouTubeTranscriptClient
                 auto = url;
             }
         }
+        if (otherSpeech && auto == null) return null;
         string picked = humanExact ?? human ?? auto;
         return picked == null ? null : Regex.Replace(picked, "&fmt=[^&]*", "");
     }
@@ -131,6 +136,9 @@ public class YouTubeTranscriptClient
         }
         return result;
     }
+
+    private static bool IsEnglish(string lang) =>
+        lang == "en" || lang.StartsWith("en-", StringComparison.Ordinal);
 
     private static string Clean(string raw)
     {

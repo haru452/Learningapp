@@ -105,6 +105,8 @@ class PickTranscriptTest(unittest.TestCase):
 
     def test_no_english(self):
         self.assertIsNone(b.pick_transcript([FakeTr("ja", False)]))
+        # 日本語の動画 (自動字幕が ja) に付いた英語の字幕は使わない
+        self.assertIsNone(b.pick_transcript([FakeTr("en", False), FakeTr("ja", True)]))
         self.assertIsNone(b.pick_transcript([]))
 
 

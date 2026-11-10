@@ -20,7 +20,8 @@ public class ShadowSession
 
     public const string NotHeardMessage = "I couldn't hear you. Tap Start to try again.";
     public const string CannotPlayMessage = "Could not play the video in the app.";
-    private const int SplitSeconds = 180;
+    private const int SplitSeconds = 60;    // 1 回に送る録音の長さ。長いとスマホの回線で時間切れ (HTTP 0) になりやすい
+    private const int NetworkRetries = 2;   // 返事が来なかったとき (HTTP 0) に送り直す回数
     private const int ExtraRecordSeconds = 30;
     private const float EndTailSeconds = 2f;
     private const float PlayWaitSeconds = 60f;   // ▶ を押してもらうのを待つ
@@ -62,6 +63,19 @@ public class ShadowSession
     private double _videoTime;
     private bool _playing, _ended, _stopRequested;
     private string _playError;
+    private PendingCheck _pending;   // 判定に失敗した録音。「Check again」で、録り直さずに判定だけやり直す
+
+    /// <summary>判定待ちの録音と、そこまでに書き起こせた区切り</summary>
+    private class PendingCheck
+    {
+        public YouTubeSearchClient.Video Video;
+        public List<string> Script;
+        public byte[] Wav;
+        public double Recorded, VideoTime;
+        public bool Ended;
+        public readonly List<string> Heard = new List<string>();   // 書き起こせた区切り (順番どおり)
+        public readonly List<string> Notes = new List<string>();
+    }
 
     public ShadowSession(View view, RepeatAudioPlayer audio, YouTubePlayerView video, YouTubeSearchClient youtube,
                          AudioRecorder recorder, GeminiApiClient gemini,
@@ -76,7 +90,11 @@ public class ShadowSession
         _video.OnTime += t => _videoTime = Math.Max(_videoTime, t);
         _video.OnError += msg => _playError = msg;
         _v.Ui.SearchRequested += q => _ = SearchAsync(q);
-        _v.Ui.VideoChosen += _ => ShowIdle();
+        _v.Ui.VideoChosen += v =>
+        {
+            if (_pending != null && _pending.Video.id != v?.id) _pending = null;   // ほかの動画を選んだら、残した録音は捨てる
+            ShowIdle();
+        };
     }
 
     /// <summary>シャドーイングに切り替えた・画面を開いたときの表示</summary>
@@ -108,8 +126,9 @@ public class ShadowSession
         else if (Current == State.WaitingToPlay || Current == State.Preparing) Cancel("Stopped. Tap \"Start\" to try again.");
     }
 
-    public async void OnAgain()   // My voice
+    public async void OnAgain()   // My voice / Check again
     {
+        if (Current == State.Idle && _pending != null) { await RecheckAsync(); return; }
         if (Current != State.Summary || (_myVoice == null && _myVoiceWav == null)) return;
         if (_myVoice == null) _myVoice = ToClip(_myVoiceWav);
         if (_myVoice == null) return;
@@ -127,6 +146,8 @@ public class ShadowSession
         _replayCts?.Cancel();
         _audio.Stop();
         if (!IsRunning) return;
+        if (Current == State.Checking && _pending != null)
+            status = "Stopped. Tap \"Check again\" to finish checking.";   // 録音は残っている
         _cts?.Cancel();
         _v.Ui.CloseEarphonePopup(false);
         _video.Hide();
@@ -166,6 +187,23 @@ public class ShadowSession
         }
     }
 
+    /// <summary>録音の 1 区切りを書き起こす。返事が来なかったとき (HTTP 0: 時間切れ・通信の切れ) は少し待って送り直す</summary>
+    private async Task<(string transcript, List<string> notes)> TranscribePartAsync(byte[] wav, string reference, CancellationToken ct)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await _gemini.TranscribeShadowingAsync(wav, reference);
+            }
+            catch (HttpException e) when (e.StatusCode == 0 && attempt < NetworkRetries && !ct.IsCancellationRequested)
+            {
+                Debug.LogWarning("[Shadow] no response, retrying (" + (attempt + 1) + "): " + FirstLine(e.Message));
+                await Task.Delay(2000);
+            }
+        }
+    }
+
     // ------------------------------------------------------------
     // 流れ
     // ------------------------------------------------------------
@@ -176,6 +214,7 @@ public class ShadowSession
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
+        _pending = null;   // Start = 新しく録る
         _v.Ui.HideCandidates();
         SetText(_v.Result, "");
         SetText(_v.Header, Escape(video.title));
@@ -277,23 +316,43 @@ public class ShadowSession
         _video.Hide();
         _v.Ui.ShowVideo(false);
 
-        // 4. 書き起こし (180 秒ずつ)
+        _pending = new PendingCheck
+        {
+            Video = video, Script = script, Wav = wav, Recorded = recorded, VideoTime = _videoTime, Ended = _ended,
+        };
+        wav = null;
+        await CheckAsync(_pending, ct);
+    }
+
+    /// <summary>「Check again」: 残した録音を、失敗した区切りから判定し直す</summary>
+    private async Task RecheckAsync()
+    {
+        _replayCts?.Cancel();
+        _audio.Stop();
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        SetText(_v.Result, "");
+        await CheckAsync(_pending, _cts.Token);
+    }
+
+    // 4. 書き起こし (SplitSeconds ずつ) → 5. アドバイス → まとめ
+    private async Task CheckAsync(PendingCheck p, CancellationToken ct)
+    {
+        var video = p.Video;
         SetState(State.Checking);
         SetLoading(true);
         SetText(_v.Header, "Checking...");
-        var heard = new StringBuilder();
-        var notes = new List<string>();
         try
         {
-            var parts = WavSplitter.Split(wav, SplitSeconds);
-            for (int i = 0; i < parts.Count; i++)
+            var parts = WavSplitter.Split(p.Wav, SplitSeconds);
+            for (int i = p.Heard.Count; i < parts.Count; i++)   // 書き起こせた区切りは送り直さない
             {
                 SetStatus("Checking... (" + (i + 1) + " / " + parts.Count + ")");
-                var r = await _gemini.TranscribeShadowingAsync(parts[i], ShadowScript.ReferenceSlice(script, i, parts.Count));
+                var r = await TranscribePartAsync(parts[i], ShadowScript.ReferenceSlice(p.Script, i, parts.Count), ct);
                 parts[i] = null;   // 送った分はメモリから外す
                 if (ct.IsCancellationRequested) return;
-                heard.Append(r.transcript).Append(' ');
-                notes.AddRange(r.notes);
+                p.Heard.Add(r.transcript);
+                p.Notes.AddRange(r.notes);
             }
         }
         catch (Exception e)
@@ -301,15 +360,18 @@ public class ShadowSession
             Debug.LogWarning("[Shadow] transcription failed: " + e.Message);
             if (ct.IsCancellationRequested) return;
             SetLoading(false);
-            ShowIdle("Could not check your voice (" + Escape(FirstLine(e.Message)) + "). Tap \"Start\" to try again.");
+            ShowIdle("Could not check your voice (" + Escape(FirstLine(e.Message)) + ").\n" +
+                     "Tap \"Check again\" to try without recording again.");
             return;
         }
 
-        double fraction = ShadowScript.Fraction(_videoTime, recorded, video.durationSeconds, _ended);
-        var sentences = ShadowScript.SentencesUpTo(script, fraction);
-        var score = ShadowScorer.Score(sentences, heard.ToString());
+        double fraction = ShadowScript.Fraction(p.VideoTime, p.Recorded, video.durationSeconds, p.Ended);
+        var sentences = ShadowScript.SentencesUpTo(p.Script, fraction);
+        var score = ShadowScorer.Score(sentences, string.Join(" ", p.Heard));
+        var notes = p.Notes;
         if (score.empty)
         {
+            _pending = null;
             SetLoading(false);
             ShowIdle(NotHeardMessage);
             return;
@@ -325,8 +387,8 @@ public class ShadowSession
         catch (Exception e) { Debug.LogWarning("[Shadow] advice failed: " + e.Message); }
         if (ct.IsCancellationRequested) return;
         SetLoading(false);
-        SetMyVoice(wav);
-        wav = null;
+        SetMyVoice(p.Wav);
+        if (_pending == p) _pending = null;
         await FinishAsync(video, score.scores, score.average, advice);
     }
 
@@ -394,7 +456,9 @@ public class ShadowSession
         if (_v.SpeakButton != null) { _v.SpeakButton.gameObject.SetActive(stop); _v.SpeakButton.interactable = true; }
         if (_v.SpeakLabel != null) _v.SpeakLabel.text = "Stop";
 
-        SetButton(_v.AgainButton, s == State.Summary && (_myVoice != null || _myVoiceWav != null), "My voice");
+        bool recheck = s == State.Idle && _pending != null;
+        SetButton(_v.AgainButton, recheck || (s == State.Summary && (_myVoice != null || _myVoiceWav != null)),
+                  recheck ? "Check again" : "My voice");
         if (_v.Sentence != null) _v.Sentence.gameObject.SetActive(false);   // シャドーイングでは使わない (場所を空ける)
         _v.Ui.SetSearchVisible(idle);
         if (_v.SlowButton != null) _v.SlowButton.gameObject.SetActive(false);

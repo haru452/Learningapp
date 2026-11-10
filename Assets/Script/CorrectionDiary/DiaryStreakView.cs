@@ -261,6 +261,7 @@ public class DiaryStreakView : MonoBehaviour
             messageText.text = showDebug ? BuildDebug() : BuildMessage(streak, doneToday);
 
         RenderWeek(today);
+        StudyReminder.Schedule(today, doneToday, streak);   // 記録が切れそうな日の 21 時に通知
     }
 
     // ------------------------------------------------------------

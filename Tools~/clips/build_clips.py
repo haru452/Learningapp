@@ -42,16 +42,21 @@ def load_words(path):
 
 
 def pick_transcript(transcripts):
-    """英語 (en, en-*) の人が付けた字幕を優先し、無ければ自動字幕。英語が無ければ None。"""
+    """英語 (en, en-*) の人が付けた字幕を優先し、無ければ自動字幕。英語が無ければ None。
+    自動字幕は話している言語で作られるので、英語以外の自動字幕しか無ければ英語の動画ではない → None。"""
     manual = auto = None
+    other_speech = False
     for t in transcripts:
         lang = (t.language_code or "").lower()
         if lang != "en" and not lang.startswith("en-"):
+            other_speech = other_speech or t.is_generated
             continue
         if t.is_generated:
             auto = auto or t
         else:
             manual = manual or t
+    if other_speech and auto is None:
+        return None
     return manual or auto
 
 
