@@ -10,13 +10,15 @@ using System.Xml.Linq;
 
 /// <summary>
 /// YouTube 動画の英語字幕をスマホから取る (非公式。Python の youtube-transcript-api 1.x と同じ手順)。
-/// player API (Android クライアントのふり) → 字幕トラックの URL → timedtext XML。
+/// watch ページから INNERTUBE_API_KEY を取る → player API (Android クライアントのふり, key 付き)
+/// → 字幕トラックの URL (PoToken が要る exp=xpe のものは使わない) → timedtext XML。
 /// YouTube 側の仕様が変わったらここの定数を変える。
 /// </summary>
 public class YouTubeTranscriptClient
 {
     // 変わりやすい値は 1 か所にまとめる
-    private const string PlayerUrl = "https://www.youtube.com/youtubei/v1/player";
+    private const string WatchUrl = "https://www.youtube.com/watch?v=";
+    private const string PlayerUrl = "https://www.youtube.com/youtubei/v1/player?key=";
     private const string ClientName = "ANDROID";
     private const string ClientVersion = "20.10.38";
 
@@ -29,10 +31,12 @@ public class YouTubeTranscriptClient
         if (string.IsNullOrEmpty(videoId)) return null;
         try
         {
+            string key = ExtractInnertubeKey(await HttpUtil.GetAsync(WatchUrl + Uri.EscapeDataString(videoId)));
+            if (key == null) return null;
             string body = "{\"context\":{\"client\":{\"clientName\":\"" + ClientName +
                           "\",\"clientVersion\":\"" + ClientVersion + "\"}},\"videoId\":\"" +
                           HttpUtil.JsonEscape(videoId) + "\"}";
-            string playerJson = await HttpUtil.PostJsonAsync(PlayerUrl, body);
+            string playerJson = await HttpUtil.PostJsonAsync(PlayerUrl + Uri.EscapeDataString(key), body);
             string trackUrl = PickTrackUrl(playerJson);
             if (trackUrl == null) return null;
             string xml = await HttpUtil.GetAsync(trackUrl);
@@ -45,10 +49,20 @@ public class YouTubeTranscriptClient
         }
     }
 
+    /// <summary>watch ページの HTML から "INNERTUBE_API_KEY" の値を取る。無ければ null</summary>
+    public static string ExtractInnertubeKey(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return null;
+        var m = Regex.Match(html, "\"INNERTUBE_API_KEY\":\\s*\"([a-zA-Z0-9_-]+)\"");
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
     /// <summary>
     /// player の応答 JSON から英語字幕の URL を選ぶ。人の字幕 (kind なし) を優先、無ければ自動 (asr)。
-    /// 人の英語が複数なら "en" ちょうどを優先。URL から &amp;fmt=... を除く。無ければ null。
+    /// 人の英語が複数なら "en" ちょうどを優先。PoToken が要る URL (&amp;exp=xpe) は使わない。
+    /// URL から &amp;fmt=... を除く。無ければ null。
     /// </summary>
+
     public static string PickTrackUrl(string playerJson)
     {
         object root;
@@ -65,7 +79,7 @@ public class YouTubeTranscriptClient
             if (d == null) continue;
             string lang = JsonGet.Str(d, "languageCode");
             string url = JsonGet.Str(d, "baseUrl");
-            if (url.Length == 0) continue;
+            if (url.Length == 0 || url.Contains("&exp=xpe")) continue;
             if (!(lang == "en" || lang.StartsWith("en-", StringComparison.Ordinal))) continue;
 
             string kind = JsonGet.Str(d, "kind");

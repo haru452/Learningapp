@@ -57,13 +57,18 @@ def pick_transcript(transcripts):
 
 def build_rows(words, videos, current):
     """動画ごとに場面を探し、単語ごとに current へ merge する。場面がある単語だけ返す。
-    videos: [{video_id, channel, lines}]、current: {word: [場面]}。"""
+    videos: [{video_id, channel, lines}]、current: {word: [場面]}。
+    速くするため、動画ごとに字幕の単語を 1 回だけ集め、その動画に出ない単語は調べない (結果は同じ)。"""
     result = {}
+    vocab = [{t for line in v["lines"] or [] if line for t in clip_finder.tokens(line.get("text"))} for v in videos]
     for w in words:
         merged = list(current.get(w) or [])
-        for v in videos:
+        target = clip_finder.tokens(w)
+        for v, seen in zip(videos, vocab):
             if len(merged) >= clip_finder.MAX_PER_WORD:
                 break
+            if not target or not all(t in seen for t in target):
+                continue
             found = clip_finder.find_in_video(w, v["video_id"], v["channel"], "channel", v["lines"])
             merged = clip_finder.merge(merged, found)
         if merged:

@@ -33,6 +33,12 @@ public class VocabClipSearchLog
         Count++;
     }
 
+    /// <summary>YouTube に届かなかった検索の分を戻す (今日の分で 1 以上のときだけ 1 減らす)</summary>
+    public void Refund(DateTime localNow)
+    {
+        if (Date == Day(localNow) && Count > 0) Count--;
+    }
+
     public void Block(DateTime localNow)
     {
         BlockedDate = Day(localNow);

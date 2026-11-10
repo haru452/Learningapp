@@ -58,10 +58,12 @@ public static class VocabQueue
         return result;
     }
 
-    /// <summary>回のあとに next_new.json へ残す単語: 使った語と、もう候補でない語を除く (順番はそのまま)</summary>
-    public static List<string> RemainingNextNew(List<string> nextNew, IEnumerable<string> used, List<string> randomCandidates)
+    /// <summary>
+    /// 回のあとに next_new.json へ残す単語: 使った語・辞書に無かった語 (notFound)・もう候補でない語を除く (順番はそのまま)
+    /// </summary>
+    public static List<string> RemainingNextNew(List<string> nextNew, IEnumerable<string> used, List<string> randomCandidates, IEnumerable<string> notFound = null)
     {
-        var usedKeys = new HashSet<string>((used ?? Enumerable.Empty<string>()).Select(VocabDeck.Key));
+        var usedKeys = new HashSet<string>((used ?? Enumerable.Empty<string>()).Concat(notFound ?? Enumerable.Empty<string>()).Select(VocabDeck.Key));
         var inRandom = new HashSet<string>((randomCandidates ?? new List<string>()).Select(VocabDeck.Key));
         var seen = new HashSet<string>();
         var result = new List<string>();

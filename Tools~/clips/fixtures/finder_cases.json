@@ -1,4 +1,7 @@
 [
+  { "name": "zero duration line skipped", "word": "calm",
+    "lines": [ { "start": 5.0, "duration": 0, "text": "calm" }, { "start": 8.0, "duration": 2.0, "text": "so calm" } ],
+    "expect": [ { "startMs": 7000, "endMs": 10000, "sentence": "so calm" } ] },
   { "name": "plain word", "word": "calm",
     "lines": [ { "start": 5.0, "duration": 2.0, "text": "I feel calm." } ],
     "expect": [ { "startMs": 4000, "endMs": 7000, "sentence": "I feel calm." } ] },

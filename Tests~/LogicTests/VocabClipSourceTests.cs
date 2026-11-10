@@ -31,6 +31,8 @@ public static partial class LogicTests
         public List<string> SearchedWords = new List<string>();
         public Exception SearchError;
         public Exception TranscriptError;
+        public Exception CloudError;
+        public List<string> Logs = new List<string>();
         public TaskCompletionSource<List<YouTubeSearchClient.Video>> SearchGate;
         public Dictionary<string, List<TranscriptLine>> Transcripts = new Dictionary<string, List<TranscriptLine>>();
         public bool SignedIn = true, HasKey = true;
@@ -40,6 +42,7 @@ public static partial class LogicTests
             Func<IList<string>, Task<List<VocabClip>>> getCloud = words =>
             {
                 CloudCalls++;
+                if (CloudError != null) return Task.FromException<List<VocabClip>>(CloudError);
                 var keys = new HashSet<string>(words);
                 return Task.FromResult(Cloud.Where(c => keys.Contains(c.Word)).ToList());
             };
@@ -59,7 +62,7 @@ public static partial class LogicTests
                 return Task.FromResult(Transcripts.TryGetValue(id, out var l) ? l : null);
             };
             return new VocabClipSource(SignedIn ? getCloud : null, SignedIn ? addCloud : null,
-                HasKey ? search : null, transcript, Storage, () => Now);
+                HasKey ? search : null, transcript, Storage, () => Now, Logs.Add);
         }
 
         public string Today => Now.ToLocalTime().ToString("yyyy-MM-dd");
@@ -98,6 +101,7 @@ public static partial class LogicTests
         ClipSourceNoKeyTest();
         ClipSourceSameTaskTest();
         ClipSourceFillFromCloudTest();
+        VocabClipErrorTests();
     }
 
     private static void VocabClipStoreJsonTests()
@@ -157,7 +161,8 @@ public static partial class LogicTests
 
     private static void ClipSourceNoneTest()
     {
-        var f = new ClipFakes(); // 字幕は全部 null
+        var f = new ClipFakes(); // 1 本だけ字幕が読めるが単語は出ない (残りは null)
+        f.Transcripts["v1"] = Lines("nothing here");
         var r = Run(f.Make().GetAsync("calm", true));
         Check(r.status == ClipStatus.None && r.clips.Count == 0, "clipsource none: None");
         Check(f.TranscriptCalls.Count == 5, "clipsource none: 5 videos tried (" + f.TranscriptCalls.Count + ")");

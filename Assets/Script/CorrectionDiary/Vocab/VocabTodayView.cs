@@ -257,12 +257,14 @@ public partial class VocabTodayView
             var candidates = VocabQueue.OrderCandidates(nextNew, randomCandidates, deckWords);
             noneLeft = candidates.Count == 0;
             int fails = 0;
+            var notFound = new List<string>();   // 辞書に無かった語 (次からも出さないので next_new.json から除く)
             foreach (string w in candidates)
             {
                 if (added >= newCount || fails >= MaxLookupFailures) break;
                 if (offline || keyProblem != null) break;
                 DictionaryResult r = await Lookup(w);
                 if (token != _token) return;
+                if (r != null && !r.Found) notFound.Add(w);
                 if (r == null || !r.Found) { fails++; continue; }
                 fails = 0;
                 _dicts[w] = r;
@@ -270,9 +272,9 @@ public partial class VocabTodayView
                 cards.Add(new VocabCard { Word = VocabDeck.Key(w), Source = "auto", Cefr = _ctx.LevelFor(w, r), CreatedAt = now });
                 added++;
             }
-            // 使った単語は先に決めた一覧から除く
+            // 使った単語と辞書に無かった単語は先に決めた一覧から除く
             if (nextNew.Count > 0)
-                VocabStore.SaveNextNew(VocabQueue.RemainingNextNew(nextNew, cards.Skip(cards.Count - added).Select(c => c.Word), randomCandidates));
+                VocabStore.SaveNextNew(VocabQueue.RemainingNextNew(nextNew, cards.Skip(cards.Count - added).Select(c => c.Word), randomCandidates, notFound));
         }
         _ctx.SetLoading(false);
 

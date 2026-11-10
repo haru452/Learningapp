@@ -6,7 +6,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-public enum ClipStatus { Ok, None, Offline, Limit, NoKey }
+/// <summary>
+/// Error: 原因のわからない失敗 (キーの間違い・字幕が 1 本も読めない など)。保存しないので、あとでまた調べる。
+/// </summary>
+public enum ClipStatus { Ok, None, Offline, Limit, NoKey, Error }
 
 public class VocabClipSource
 {
@@ -74,6 +77,7 @@ public class VocabClipSource
         if (_getCloud != null)
         {
             var cloud = await GetCloudSafeAsync(new[] { word });
+            if (cloud == null) return (ClipStatus.Offline, new List<VocabClip>()); // 読めなければ検索にも進まない
             var mine = cloud.Where(c => VocabDeck.Key(c.Word) == word).ToList();
             if (mine.Count > 0)
             {
@@ -89,7 +93,7 @@ public class VocabClipSource
         var log = _storage.LoadLog();
         if (!log.CanSearch(local)) return (ClipStatus.Limit, new List<VocabClip>());
         log.Used(local);
-        _storage.SaveLog(log); // 失敗しても YouTube の枠は使うので、呼ぶ前に数える
+        _storage.SaveLog(log); // 呼ぶ前に数え、YouTube に届かなかった・使えなかった失敗なら戻す
 
         // 6. 検索
         List<YouTubeSearchClient.Video> videos;
@@ -102,17 +106,20 @@ public class VocabClipSource
         }
         catch (HttpException e) when (e.StatusCode == 0)
         {
+            Refund(log, local);
             return (ClipStatus.Offline, new List<VocabClip>());
         }
         catch (Exception e)
         {
-            _log("[VocabClips] video search failed: " + e.Message);
-            return None(); // 保存しないので、あとでまた調べる
+            // キーの間違い・読めない応答など。保存しないので、あとでまた調べる
+            Refund(log, local);
+            _log("[VocabClips] search failed: " + e.Message);
+            return (ClipStatus.Error, new List<VocabClip>());
         }
 
         // 7. 上から字幕を調べる
         var clips = new List<VocabClip>();
-        int tried = 0;
+        int tried = 0, readable = 0;
         foreach (var v in videos)
         {
             if (tried >= MaxVideosTried || clips.Count >= EnoughClips) break;
@@ -131,7 +138,15 @@ public class VocabClipSource
                 continue;
             }
             if (lines == null) continue;
+            readable++;
             clips = VocabClipFinder.Merge(clips, VocabClipFinder.FindInVideo(word, v.id, v.channel, "search", lines));
+        }
+
+        // 字幕が 1 本も読めなかったときは「場面なし」と決めつけない (保存しない)
+        if (readable == 0)
+        {
+            _log("[VocabClips] no transcripts for \"" + word + "\" (" + tried + " videos)");
+            return (ClipStatus.Error, new List<VocabClip>());
         }
 
         // 8. 保存 (0 場面でも「調べた」として保存) と、雲への追加
@@ -148,6 +163,7 @@ public class VocabClipSource
     /// <summary>
     /// 単語をまとめて 1 回で Supabase に問い合わせ、見つかった単語を保存する。
     /// 返す辞書のキーは正規化した単語 (重複は 1 つ)。保存済み (準備済み) の単語は問い合わせない。
+    /// 読み込みに失敗したら、問い合わせた単語は Offline。
     /// </summary>
     public async Task<Dictionary<string, ClipStatus>> FillFromCloudAsync(IList<string> words)
     {
@@ -166,6 +182,11 @@ public class VocabClipSource
         if (_getCloud == null || remaining.Count == 0) return result;
 
         var cloud = await GetCloudSafeAsync(remaining);
+        if (cloud == null)
+        {
+            foreach (var k in remaining) result[k] = ClipStatus.Offline;
+            return result;
+        }
         foreach (var group in cloud.GroupBy(c => VocabDeck.Key(c.Word)))
         {
             if (!remaining.Contains(group.Key)) continue;
@@ -175,14 +196,21 @@ public class VocabClipSource
         return result;
     }
 
+    /// <summary>Supabase から読む。失敗したら null</summary>
     private async Task<List<VocabClip>> GetCloudSafeAsync(IList<string> words)
     {
         try { return (await _getCloud(words) ?? new List<VocabClip>()).Where(c => c != null).ToList(); }
         catch (Exception e)
         {
             _log("[VocabClips] could not read clips from the cloud: " + e.Message);
-            return new List<VocabClip>();
+            return null;
         }
+    }
+
+    private void Refund(VocabClipSearchLog log, DateTime local)
+    {
+        log.Refund(local);
+        _storage.SaveLog(log);
     }
 
     private void Save(string word, List<VocabClip> clips)

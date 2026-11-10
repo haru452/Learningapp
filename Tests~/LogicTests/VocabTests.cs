@@ -190,6 +190,8 @@ public static partial class LogicTests
         var rem = VocabQueue.RemainingNextNew(new List<string> { "cat", "dog", "eagle", "apple" }, new[] { "Cat" }, rnd);
         Check(rem.SequenceEqual(new[] { "dog", "apple" }), "remaining: minus used and minus not-candidates: " + string.Join(",", rem));
         Check(VocabQueue.RemainingNextNew(null, null, null).Count == 0, "remaining: null -> empty");
+        var remNf = VocabQueue.RemainingNextNew(new List<string> { "cat", "dog", "apple" }, new[] { "cat" }, rnd, new[] { "Dog" });
+        Check(remNf.SequenceEqual(new[] { "apple" }), "remaining: dictionary-miss word dropped: " + string.Join(",", remNf));
 
         // 1 回分: 評価してカードが変わる。同じ回では出し直さない
         var a = Learning("alpha", 10); var b = Learning("beta", 5);

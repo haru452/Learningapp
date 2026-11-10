@@ -155,8 +155,8 @@ public class VocabManager : MonoBehaviour
         if (!string.IsNullOrWhiteSpace(ytKey)) search = new YouTubeSearchClient(ytKey).SearchWordVideosAsync;
         var transcript = new YouTubeTranscriptClient();
         _clipSource = new VocabClipSource(
-            async words => CloudReady ? await supabase.GetVocabClipsAsync(words) : new List<VocabClip>(),
-            async clips => { if (CloudReady) await supabase.AddVocabClipsAsync(clips); },   // ログインしていなければ保存しない
+            async words => await CloudReadyAsync() ? await supabase.GetVocabClipsAsync(words) : new List<VocabClip>(),
+            async clips => { if (await CloudReadyAsync()) await supabase.AddVocabClipsAsync(clips); },   // ログインしていなければ保存しない
             search,
             transcript.GetEnglishAsync,
             _clipStorage,
@@ -178,7 +178,9 @@ public class VocabManager : MonoBehaviour
     }
 
     // 呼ぶたびに確かめる (途中でログイン・ログアウトしてもよい)
-    private bool CloudReady => supabase != null && supabase.IsConfigured && supabase.IsSignedIn;
+    /// <summary>ほかの機能と同じく、前回のログインがまだ戻っていなければ戻してから答える</summary>
+    private async Task<bool> CloudReadyAsync() =>
+        supabase != null && supabase.IsConfigured && await supabase.EnsureSignedInAsync();
 
     private void Start()
     {

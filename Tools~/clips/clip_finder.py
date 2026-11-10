@@ -42,7 +42,9 @@ def find_in_video(word, video_id, channel, source, lines):
     for line in lines:
         if len(result) >= MAX_PER_VIDEO:
             break
-        if not line or not _contains_run(tokens(line.get("text")), target):
+        if not line or float(line.get("duration") or 0) <= 0:  # 0 秒の行は流せない
+            continue
+        if not _contains_run(tokens(line.get("text")), target):
             continue
         start = float(line["start"])
         result.append({

@@ -122,6 +122,7 @@ public static partial class LogicTests
     {
         var f = new PrefetchFakes { Session = Words("s", 5), NextNew = Words("n", 15) };
         f.Ready(f.Session.Concat(f.NextNew).Where(w => w != "n7").ToArray());
+        f.Clip.Transcripts["v1"] = Lines("nothing here"); // 字幕は読めるが場面は無い (0 場面で保存)
         var p = f.Make();
         p.Kick();
         Wait(p.RunningTask);
@@ -147,6 +148,7 @@ public static partial class LogicTests
     {
         var f = new PrefetchFakes { Session = Words("s", 5), NextNew = Words("n", 15) };
         f.Ready(f.Session.Concat(f.NextNew).Where(w => w != "s1" && w != "n1").ToArray());
+        f.Clip.Transcripts["v1"] = Lines("nothing here"); // 字幕は読めるが場面は無い (0 場面で保存)
         f.Clip.SearchGate = new TaskCompletionSource<List<YouTubeSearchClient.Video>>();
         var p = f.Make();
         p.Kick();

@@ -140,7 +140,7 @@ public class VocabClipPrefetcher
         }
     }
 
-    /// <summary>1 回分の準備。上限・通信なし・キーなしで止まったとき、または失敗したときは false</summary>
+    /// <summary>1 回分の準備。上限・通信なし・キーなし・わからない失敗で止まったとき、または失敗したときは false</summary>
     private async Task<bool> RunOnceAsync()
     {
         try
@@ -169,7 +169,12 @@ public class VocabClipPrefetcher
             if (missing.Count == 0) return true;
 
             // 3. Supabase の一覧からまとめて埋める
-            await _source.FillFromCloudAsync(missing);
+            var filled = await _source.FillFromCloudAsync(missing);
+            if (filled.Values.Contains(ClipStatus.Offline))
+            {
+                _log("[VocabClips] prefetch paused: " + ClipStatus.Offline);
+                return false;
+            }
             missing = Missing(missing, _nowUtc());
 
             // 4. 残りはその場で検索する
@@ -177,7 +182,8 @@ public class VocabClipPrefetcher
             {
                 if (_stopped) return false;
                 var (status, _) = await _source.GetAsync(w, allowSearch: true);
-                if (status == ClipStatus.Limit || status == ClipStatus.Offline || status == ClipStatus.NoKey)
+                if (status == ClipStatus.Limit || status == ClipStatus.Offline || status == ClipStatus.NoKey
+                    || status == ClipStatus.Error)
                 {
                     _log("[VocabClips] prefetch paused: " + status);
                     return false;

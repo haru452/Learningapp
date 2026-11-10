@@ -47,7 +47,8 @@ public static class VocabClipFinder
         foreach (var line in lines)
         {
             if (result.Count >= MaxPerVideo) break;
-            if (line == null || !ContainsRun(Tokens(line.Text), target)) continue;
+            if (line == null || line.Duration <= 0) continue; // 0 秒の行は流せない
+            if (!ContainsRun(Tokens(line.Text), target)) continue;
             int startMs = (int)Math.Max(0, Math.Round(line.Start * 1000, MidpointRounding.AwayFromZero) - LeadMs);
             int endMs = (int)Math.Round((line.Start + line.Duration) * 1000, MidpointRounding.AwayFromZero);
             result.Add(new VocabClip
