@@ -50,6 +50,9 @@ public static partial class LogicTests
         KaraokeTests();
         ReminderTests();
         ShadowRewindTests();
+        TalkCoachTests();
+        TalkPlanTests();
+        TalkSummaryTests();
 
         if (_failed > 0)
         {

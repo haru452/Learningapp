@@ -76,3 +76,19 @@ GitHub の Learningapp では、merge 先は `main` ではなく `develop` (main
 - [ ] 気をつけること: 字幕の取得は非公式な方法で、YouTube の仕様が変わると止まることがある。クラウドのサーバーからは止められやすいので、A はパソコン、B はスマホで取る
 
 参考: [YouGlish の埋め込みの規約](https://youglish.com/api/doc/widget) (スマホアプリで使うには YouGlish の許可が要るので、YouGlish 自体は使わない)
+
+## 3. Talk: Lufka と英会話の練習 (11/10 に実装・スマホで確認待ち)
+
+設計: `docs/superpowers/specs/2026-11-10-talk-coach-design.md` / 計画: `docs/superpowers/plans/2026-11-10-talk-coach.md`
+
+先に、Supabase の SQL Editor で `database_learnApp/supabase/talk.sql` を実行する (クラウドの連続記録に数えるため)。
+
+手順 (Talk の画面で):
+- [ ] 「I go to Osaka yesterday」と言う → Lufka は声では言い直さない。少しして画面の上に ✎ (言った文 → よりよい言い方、日本語の説明) が出る。次に話すと消える
+- [ ] 正しい文を言う → ✎ は出ない
+- [ ] 返事を言い終えたら、すぐ聞く番になる (添削を待たない)
+- [ ] 機内モードにして話す → 添削なしで今まで通り話せる
+- [ ] 単語帳で何語かやってから Talk → 上に「Today's words」が並び、会話で使うと ✓ (went → go のような形でも)
+- [ ] 3 回話して End → まとめが出て、日記の画面の連続記録が今日になる。2 回で End → 「3 回以上で数える」と出て、数えない
+- [ ] 返事の途中で End → まとめが出て、あとから ✎ が出ない
+- [ ] まとめの「Talk again」で次の会話、「Close」で閉じる

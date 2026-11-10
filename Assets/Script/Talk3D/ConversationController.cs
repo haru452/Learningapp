@@ -196,6 +196,7 @@ public partial class ConversationController : MonoBehaviour
         state = State.Starting;
         int id = ++sessionId;
         status = "準備中…";
+        CoachBeginSession();   // 今日の単語とレベルを指示に足し、練習の記録を始める
 
         bool granted = await EnsureMicPermission();
         if (id != sessionId) return;
@@ -332,6 +333,7 @@ public partial class ConversationController : MonoBehaviour
 
         state = State.Thinking;
         status = "考え中…";
+        CoachOnUserTurn(id, userText);   // 添削を裏で始める (返事は待たせない)
 
         if (character != null)
         {
@@ -379,6 +381,8 @@ public partial class ConversationController : MonoBehaviour
 
         await speaker;
         if (id != sessionId) return;
+
+        lastLufkaLine = Sanitize(string.IsNullOrEmpty(replyShown) ? full ?? "" : replyShown);   // 次の添削の文脈
 
         // 声の余韻を拾わないよう、少し間を置く
         try { await Task.Delay(600, destroyCancellationToken); }

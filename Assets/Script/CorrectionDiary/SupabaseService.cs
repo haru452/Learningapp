@@ -311,6 +311,13 @@ public partial class SupabaseService : MonoBehaviour
             ",\"p_taken_at\":\"" + takenAtUtc.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture) + "\"");
     }
 
+    /// <summary>Talk (Lufka と英会話) を 1 回した日を連続記録に数える (talk.sql)。同じ日に何回呼んでも 1 回分</summary>
+    public async Task CompleteTalkSessionAsync(DateTime takenAtUtc)
+    {
+        await RpcAsync("complete_talk_session",
+            ",\"p_taken_at\":\"" + takenAtUtc.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture) + "\"");
+    }
+
     /// <summary>
     /// 端末内の連続日数をクラウドに引き継ぐ (ログイン後に1回)。
     /// サーバー側で検証され、サーバーの値より大きいときだけ反映される。

@@ -60,7 +60,7 @@ public partial class ConversationController
             case SttErrorCode.InsufficientPermissions:
             case SttErrorCode.LanguageNotSupported:
             case SttErrorCode.LanguageUnavailable:
-                StopConversation();
+                CoachEnd();   // 止めて、ここまでのまとめを出す (3 回以上話していれば連続記録にも数える)
                 status = "エラー: " + message;
                 Debug.LogError("[STT] " + code + " " + message);
                 break;
@@ -110,7 +110,7 @@ public partial class ConversationController
     {
         if (ModesSheet.AnyOpen) return;   // Modes のシートの上に重ならないように
         int fontSize = Mathf.Max(20, Screen.height / 60);
-        var label = new GUIStyle(GUI.skin.label) { fontSize = fontSize, wordWrap = true };
+        var label = new GUIStyle(GUI.skin.label) { fontSize = fontSize, wordWrap = true, richText = true };
         var button = new GUIStyle(GUI.skin.button) { fontSize = fontSize + 2 };
 
         float margin = Screen.width * 0.04f;
@@ -139,13 +139,15 @@ public partial class ConversationController
             GUILayout.Label(statsText, label);
         }
 
+        CoachGui(label, button, btnH);   // 今日の単語・最新の言い直し・まとめ
+
         GUILayout.FlexibleSpace();
 
         bool running = state != State.Stopped;
         GUI.enabled = llmReady;
-        if (GUILayout.Button(running ? "会話を止める" : "会話を始める", button, GUILayout.Height(btnH)))
+        if (!coachShowSummary && GUILayout.Button(running ? "End" : "会話を始める", button, GUILayout.Height(btnH)))
         {
-            if (running) StopConversation();
+            if (running) CoachEnd();   // 止めて、まとめを出す
             else StartConversation();
         }
         GUI.enabled = true;
