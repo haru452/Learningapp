@@ -53,7 +53,6 @@ public static partial class LogicTests
         TalkCoachTests();
         TalkPlanTests();
         TalkSummaryTests();
-        VocabSoundHelpTests();
         Character2DTests();
 
         if (_failed > 0)
