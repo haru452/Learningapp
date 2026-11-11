@@ -11,7 +11,7 @@ using UnityEngine.UI;
 /// <summary>
 /// YouTube シャドーイング: タイトルで検索して動画を選ぶ → Start → (初めての動画だけ) Gemini でお手本を作る →
 /// (イヤホンが無ければ確認) → アプリの中で動画を流し、再生が始まったら録音 → 最後まで / Stop → 180 秒ずつ書き起こし →
-/// お手本と照合 → Gemini のアドバイス → まとめ (My voice)。Web には点数だけ、Discord には文とアドバイスも送る。
+/// お手本と照合 → Gemini のアドバイス → まとめ (My voice)。Web には点数・動画・アドバイス、Discord には文も送る。
 /// 画面の部品は RepeatPracticeManager のものを使う (Speak ボタン = Stop、Again = My voice)。
 /// </summary>
 public class ShadowSession
@@ -441,11 +441,12 @@ public class ShadowSession
         SetStatus("Saving...");
         CheckFinished?.Invoke(average);
 
-        // Web には点数だけ (1 回 = 1 行)
+        // Web には点数・動画 (リンク)・アドバイス (1 回 = 1 行。英文と言った内容は送らない)
         var results = new List<RepeatResult>
         {
             new RepeatResult { sentence = "", heard = "", accuracy = average, replays = 0, source = "youtube",
-                               voice = RepeatAudioPlayer.VoiceHuman, mode = "shadow" },
+                               voice = RepeatAudioPlayer.VoiceHuman, mode = "shadow",
+                               videoId = video?.id ?? "", videoTitle = video?.title ?? "", advice = advice ?? "" },
         };
         _countStudyDay?.Invoke();
         string saveNote = await _save(results, DateTime.UtcNow);

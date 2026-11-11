@@ -13,4 +13,7 @@ public class RepeatResult
     public long tatoebaId;    // 0 = なし
     public long audioId;      // 0 = なし
     public string mode;       // repeat / shadow (空ならリピーティング)
+    public string videoId;    // シャドーイングの YouTube の動画 (Web にリンクを出す)
+    public string videoTitle;
+    public string advice;     // シャドーイングの Gemini のアドバイス (Web で見られる)
 }

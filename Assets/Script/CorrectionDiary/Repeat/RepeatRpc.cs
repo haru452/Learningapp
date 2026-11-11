@@ -17,7 +17,7 @@ public static class RepeatRpc
             {
                 var r = results[i];
                 if (i > 0) sb.Append(',');
-                bool shadow = r.mode == "shadow";   // シャドーイングは点数だけ (BBC の英文・言った内容は送らない。Discord にだけ送る)
+                bool shadow = r.mode == "shadow";   // シャドーイングは英文・言った内容を送らない (Discord にだけ送る)。動画とアドバイスは送る
                 sb.Append("{\"sentence\":").Append(Str(shadow ? "" : r.sentence))
                   .Append(",\"heard\":").Append(Str(shadow ? "" : r.heard))
                   .Append(",\"accuracy\":").Append(r.accuracy.ToString(CultureInfo.InvariantCulture))
@@ -26,8 +26,12 @@ public static class RepeatRpc
                   .Append(",\"voice\":").Append(Str(r.voice))
                   .Append(",\"tatoeba_id\":").Append(r.tatoebaId > 0 ? r.tatoebaId.ToString(CultureInfo.InvariantCulture) : "null")
                   .Append(",\"mode\":").Append(Str(r.mode == "shadow" ? "shadow" : "repeat"))
-                  .Append(",\"audio_id\":").Append(r.audioId > 0 ? r.audioId.ToString(CultureInfo.InvariantCulture) : "null")
-                  .Append('}');
+                  .Append(",\"audio_id\":").Append(r.audioId > 0 ? r.audioId.ToString(CultureInfo.InvariantCulture) : "null");
+                if (shadow)
+                    sb.Append(",\"video_id\":").Append(Str(r.videoId))
+                      .Append(",\"video_title\":").Append(Str(r.videoTitle))
+                      .Append(",\"advice\":").Append(Str(r.advice));
+                sb.Append('}');
             }
         }
         return sb.Append(']').ToString();
