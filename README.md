@@ -21,6 +21,18 @@
 |---|---|
 | <img src="docs/images/demo_correction.gif" width="240"> | <img src="docs/images/demo_talk.gif" width="240"> |
 
+| Topic（お題を考える時間） | Topic（採点と Read aloud） |
+|---|---|
+| <img src="docs/images/part2_topic_1.png" width="240" alt="お題と考える時間のカウントダウン"> | <img src="docs/images/part2_topic_2.png" width="240" alt="採点結果と、直された文の読み直し"> |
+
+| Vocab（カードの表と裏。裏には Pixabay の画像） |
+|---|
+| <img src="docs/images/part2_vocab.png" width="480" alt="単語カードの表と裏"> |
+
+| よくあるミス・苦手な発音（Web 版） |
+|---|
+| <img src="docs/images/part2_mistakes.png" width="480" alt="ミスの種類ごとの回数と、苦手な発音の点数"> |
+
 ## 主な機能
 
 下のタブは **Diary / Topic / Vocab / Modes** の 4 つです。ほかの画面（Practice・Summary・Repeat・Answer・Talk など）は **Modes** から開きます。
