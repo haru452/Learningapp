@@ -56,7 +56,7 @@ public class VocabPronCapture
     /// <summary>聞き取りを始める。マイクが使えないなどで始められなければ false</summary>
     public async Task<bool> StartAsync()
     {
-        if (IsActive) return false;
+        if (IsActive || _clipping) return false;
         if (!await _recorder.RequestPermissionAsync()) return false;
         if (_stt.IsAvailable && !await _stt.RequestSpeechPermissionAsync()) return false;
 
@@ -113,6 +113,30 @@ public class VocabPronCapture
             heard = await TranscribeWithTimeoutAsync(wav);
         return (heard ?? "", mode == Mode.SttOnly ? null : wav);
     }
+
+    private bool _clipping;   // RecordClipAsync で録音中
+
+    /// <summary>
+    /// 認識を使わずに録音だけを ms ミリ秒する (「Didn't sound right?」で、録音が無い単語のとき)。
+    /// 録音と認識を同時にできない端末でも使える。始められない・途中で Cancel されたら null
+    /// </summary>
+    public async Task<byte[]> RecordClipAsync(int ms)
+    {
+        if (IsActive || _clipping || _recorder.IsRecording) return null;
+        _clipping = true;
+        try
+        {
+            if (!await _recorder.RequestPermissionAsync()) return null;
+            if (IsActive || !_recorder.StartRecording()) return null;
+            int session = _session;
+            await Task.Delay(ms);
+            if (session != _session || !_recorder.IsRecording) return null;   // 途中で Cancel された
+            return _recorder.StopRecording();
+        }
+        finally { _clipping = false; }
+    }
+
+    public bool IsClipping => _clipping;
 
     public void Cancel()
     {

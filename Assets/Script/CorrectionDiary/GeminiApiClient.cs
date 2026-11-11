@@ -241,7 +241,7 @@ public partial class GeminiApiClient
     private Task<string> PostWithRetryAsync(string body, int timeoutSeconds = DefaultTimeoutSeconds) =>
         PostToModelsAsync(body, new[] { _model, _fallbackModel }, timeoutSeconds);
 
-    private async Task<string> PostToModelsAsync(string body, string[] models, int timeoutSeconds)
+    private async Task<string> PostToModelsAsync(string body, string[] models, int timeoutSeconds, int attemptsPerModel = MaxAttemptsPerModel)
     {
         var keys = UsableKeys;
         if (keys.Count == 0) throw new InvalidOperationException("Gemini API key is not set.");
@@ -254,7 +254,7 @@ public partial class GeminiApiClient
             string url = $"{EndpointBase}{model}:generateContent";
             string apiKey = keys[keyIndex];
 
-            for (int attempt = 0; attempt < MaxAttemptsPerModel; attempt++)
+            for (int attempt = 0; attempt < attemptsPerModel; attempt++)
             {
                 try
                 {
@@ -271,7 +271,7 @@ public partial class GeminiApiClient
                 {
                     lastError = e;
                     Debug.LogWarning($"[Gemini] {model} attempt {attempt + 1} failed ({e.StatusCode}). Retrying...");
-                    if (attempt < MaxAttemptsPerModel - 1)
+                    if (attempt < attemptsPerModel - 1)
                         await Task.Delay(1000 * (1 << attempt));
                 }
             }
@@ -356,8 +356,11 @@ public partial class GeminiApiClient
 
     /// <param name="partsJson">parts 配列の中身 (カンマ区切りの JSON オブジェクト)</param>
     /// <param name="extraConfig">generationConfig に足す設定 (例: "\"temperature\":0.2")。無ければ null</param>
+    /// <param name="models">使うモデル (先頭から順に)。null ならいつものモデル → 予備モデル</param>
+    /// <param name="attemptsPerModel">混んでいる (500/503) ときに同じモデルで試す回数</param>
     private async Task<string> GeneratePartsAsync(string partsJson, string schemaJson, string extraConfig = null,
-                                                  int timeoutSeconds = DefaultTimeoutSeconds)
+                                                  int timeoutSeconds = DefaultTimeoutSeconds, string[] models = null,
+                                                  int attemptsPerModel = MaxAttemptsPerModel)
     {
         if (UsableKeys.Count == 0)
             throw new InvalidOperationException("Gemini API key is not set.");
@@ -373,7 +376,9 @@ public partial class GeminiApiClient
                 (string.IsNullOrEmpty(extraConfig) ? "" : "," + extraConfig) +
             "}}";
 
-        string response = await PostWithRetryAsync(body, timeoutSeconds);
+        string response = models == null
+            ? await PostWithRetryAsync(body, timeoutSeconds)
+            : await PostToModelsAsync(body, models, timeoutSeconds, attemptsPerModel);
 
         var parsed = JsonUtility.FromJson<GeminiResponse>(response);
         string text = parsed?.candidates?.Length > 0

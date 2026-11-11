@@ -159,6 +159,8 @@ public partial class ConversationController : MonoBehaviour
             CommitUserText();
         }
 
+        CoachSilenceTick();   // 黙っていたら、今日の単語を使いたくなる質問をさせる
+
         if (Time.realtimeSinceStartup >= nextStatsTime)
         {
             nextStatsTime = Time.realtimeSinceStartup + 1f;
@@ -210,6 +212,7 @@ public partial class ConversationController : MonoBehaviour
 
         if (stt == null) CreateStt();
         BeginListening();
+        CoachUserTurnStarted();
     }
 
     void StopConversation()
@@ -240,6 +243,7 @@ public partial class ConversationController : MonoBehaviour
         {
             if (state != State.Listening) return;
             partialText = text;
+            CoachHeardVoice();
             commitDeadline = float.PositiveInfinity; // 話している最中は確定しない
             if (character != null) character.NotifyUserSpeaking(); // 相づち
 
@@ -280,6 +284,7 @@ public partial class ConversationController : MonoBehaviour
     void OnUserFinal(string text)
     {
         if (state != State.Listening) return;
+        CoachHeardVoice();
 
         pendingUserText = string.IsNullOrEmpty(pendingUserText)
             ? text
@@ -316,12 +321,13 @@ public partial class ConversationController : MonoBehaviour
 
     // ------------------------------------------------------------------ ユーザー発話 → LLM → 読み上げ
 
-    async void HandleUserSpeech(string userText)
+    /// <param name="nudge">true: あなたの発話ではなく、黙っていたときの Lufka への頼み (記録・添削・画面には出さない)</param>
+    async void HandleUserSpeech(string userText, bool nudge = false)
     {
         if (state != State.Listening) return;
 
         int id = sessionId;
-        userShown = userText;
+        if (!nudge) userShown = userText;
         partialText = "";
         replyShown = "";
         consumed = 0;
@@ -333,7 +339,11 @@ public partial class ConversationController : MonoBehaviour
 
         state = State.Thinking;
         status = "考え中…";
-        CoachOnUserTurn(id, userText);   // 添削を裏で始める (返事は待たせない)
+        if (!nudge)
+        {
+            CoachUserSpoke();
+            CoachOnUserTurn(id, userText);   // 添削を裏で始める (返事は待たせない)
+        }
 
         if (character != null)
         {
@@ -341,7 +351,7 @@ public partial class ConversationController : MonoBehaviour
             character.Nod(1, 10f, 0.5f); // 「なるほど」のうなずき
 
             // ユーザーが悲しい話・うれしい話をしたら、考えている間もそれに合わせた顔をする（共感）
-            if (reactToUserEmotion)
+            if (reactToUserEmotion && !nudge)
             {
                 string userEmotion = EmotionDetector.FromWords(userText);
                 if (userEmotion == EmotionDetector.Sad || userEmotion == EmotionDetector.Happy || userEmotion == EmotionDetector.Surprised)
@@ -390,6 +400,7 @@ public partial class ConversationController : MonoBehaviour
         if (id != sessionId) return;
 
         BeginListening();
+        CoachUserTurnStarted();   // ここから黙っている時間を数える
     }
 
     /// <summary>LLM から「ここまでの返信全体」が届くたびに呼ばれる</summary>

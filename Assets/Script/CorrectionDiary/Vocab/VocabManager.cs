@@ -201,6 +201,26 @@ public class VocabManager : MonoBehaviour
         return button;
     }
 
+    /// <summary>Sound / Say it の行のすぐ下に「Didn't sound right?」の行を作る (録音がある単語の表でだけ出る)</summary>
+    private Button CreateSoundHelpButton()
+    {
+        if (soundButton == null || soundButton.transform.parent == null) return null;
+        var voiceRow = soundButton.transform.parent;
+        var row = UiStyle.NewUi("SoundHelpRow", voiceRow.parent);
+        row.transform.SetSiblingIndex(voiceRow.GetSiblingIndex() + 1);
+        UiStyle.Size(row, UiTheme.MinTouch);
+        UiStyle.Row(row, UiTheme.Gap);
+        var go = UiStyle.NewUi("SoundHelpButton", row.transform);
+        var button = go.AddComponent<Button>();
+        UiStyle.Size(go, -1, 0, -1, 1);
+        var font = cardText != null ? cardText.font : progressText != null ? progressText.font : null;
+        var label = UiStyle.NewText("Label", go.transform, font, VocabSoundHelp.AskLabel, UiTheme.BodySize, UiTheme.Text, FontStyles.Bold);
+        UiStyle.Stretch(label.transform);
+        UiStyle.Secondary(button);
+        row.SetActive(false);
+        return button;
+    }
+
     /// <summary>
     /// タブの行・Sound / Say it の行などを、決めた高さのままにする。
     /// 横に並べる行は「余りの高さがほしい」と伝えるので、何もしないとカードや下のパネルと高さを半分ずつ取り合い、
@@ -258,7 +278,13 @@ public class VocabManager : MonoBehaviour
         if (_pixabay != null && _pixabay.IsConfigured && cardArea != null && soundButton != null)
             _today.SetCardImage(new VocabCardImageView(cardArea, soundButton.transform.parent, _pixabay, cardText != null ? cardText.font : null,
                 () => { if (cardButton != null) cardButton.onClick.Invoke(); }));
-        _words = new VocabWordsView(_ctx, new VocabWordsView.View
+        var helpButton = CreateSoundHelpButton();
+        if (helpButton != null)
+        {
+            var secrets = ApiSecrets.Data;
+            _today.SetSoundHelp(new VocabSoundHelp(_ctx, helpButton, ApiSecrets.Pick(secrets.youtubeVocabApiKey, secrets.youtubeApiKey)));
+        }
+        _words =new VocabWordsView(_ctx, new VocabWordsView.View
         {
             LearningToggle = learningToggle, KnownToggle = knownToggle, FilterButtons = filterButtons, Content = wordsContent,
             RowTemplate = wordRowTemplate, DialogPanel = dialogPanel, DialogText = dialogText, DialogButtons = dialogButtons,

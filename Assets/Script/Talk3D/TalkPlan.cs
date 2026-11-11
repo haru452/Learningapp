@@ -90,6 +90,35 @@ public static class TalkPlan
         }
     }
 
+    // ------------------------------------------------------------
+    // 黙っているとき: 今日の単語を使いたくなる質問を Lufka にさせる
+    // ------------------------------------------------------------
+    /// <summary>この秒数だけ黙っていたら、Lufka から質問する</summary>
+    public const float SilenceSeconds = 5f;
+    /// <summary>あなたが話さないまま続けて質問するのは、この回数まで (話したら数え直す)</summary>
+    public const int MaxNudgesInRow = 2;
+
+    /// <summary>
+    /// 次に使わせたい単語: まだ使っていない語のうち、まだ質問に使っていない最初の語。
+    /// 全部質問に使ったなら、使っていない語の最初から。使っていない語が無ければ null
+    /// </summary>
+    public static string NextNudgeWord(IEnumerable<string> words, IEnumerable<string> used, IEnumerable<string> nudged)
+    {
+        var usedSet = new HashSet<string>(used ?? new string[0]);
+        var nudgedSet = new HashSet<string>(nudged ?? new string[0]);
+        var unused = (words ?? new string[0]).Where(w => !string.IsNullOrWhiteSpace(w) && !usedSet.Contains(w)).ToList();
+        return unused.FirstOrDefault(w => !nudgedSet.Contains(w)) ?? unused.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Lufka への頼み (あなたの発話の代わりに送る。画面には出さない)。
+    /// 答えるとその単語を自然に使いたくなる、短い質問を 1 つだけ
+    /// </summary>
+    public static string NudgeQuery(string word) =>
+        "(The user has been quiet for a few seconds. Do not mention that they are quiet. " +
+        "Ask one short, friendly, easy question about their life or opinions, so that the most natural answer uses the word \"" +
+        (word ?? "").Trim() + "\". You may use the word in your question as a hint. Only ask the question.)";
+
     // 不規則動詞の過去形・過去分詞 → 元の形
     private static readonly Dictionary<string, string> Irregular = BuildIrregular(
         "go:went,gone", "be:was,were,been,is,are,am", "have:had,has", "do:did,done,does", "make:made", "take:took,taken",

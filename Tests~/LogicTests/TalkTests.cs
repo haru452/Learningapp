@@ -32,6 +32,17 @@ public static partial class LogicTests
 
     private static void TalkPlanTests()
     {
+        // ---- 黙っているときの質問 ----
+        var ws = new[] { "calm", "borrow", "rescue" };
+        Check(TalkPlan.NextNudgeWord(ws, new string[0], new string[0]) == "calm", "nudge: first unused word");
+        Check(TalkPlan.NextNudgeWord(ws, new[] { "calm" }, new string[0]) == "borrow", "nudge: skip used word");
+        Check(TalkPlan.NextNudgeWord(ws, new string[0], new[] { "calm" }) == "borrow", "nudge: skip already asked word");
+        Check(TalkPlan.NextNudgeWord(ws, new[] { "rescue" }, new[] { "calm", "borrow" }) == "calm", "nudge: all asked -> first unused again");
+        Check(TalkPlan.NextNudgeWord(ws, ws, new string[0]) == null, "nudge: all used -> null");
+        Check(TalkPlan.NextNudgeWord(null, null, null) == null, "nudge: no words -> null");
+        string q = TalkPlan.NudgeQuery(" borrow ");
+        Check(q.Contains("\"borrow\"") && q.Contains("question"), "nudge: query names the word");
+
         var now = new DateTime(2026, 11, 10, 20, 0, 0, DateTimeKind.Local);
         VocabReview R(string w, int daysAgo, int h = 10) => new VocabReview { Word = w, At = now.Date.AddDays(-daysAgo).AddHours(h) };
         var cards = new List<VocabCard> {

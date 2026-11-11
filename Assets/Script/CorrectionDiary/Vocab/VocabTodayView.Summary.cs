@@ -175,23 +175,38 @@ public partial class VocabTodayView
         }
     }
 
-    // 連続記録: 端末の連続記録とリマインダー + ログイン中ならクラウド (失敗は Console だけ)
+    // その日にもう数えた (端末・クラウド)。クラウドは送れたときだけ印を付ける (失敗したら次の評価でもう一度)
+    private static DateTime _localCountedOn = DateTime.MinValue;
+    private static DateTime _cloudCountedOn = DateTime.MinValue;
+    private static bool _cloudSending;
+
+    // 連続記録: 端末の連続記録とリマインダー + ログイン中ならクラウド (失敗は Console だけ)。
+    // 1 枚目を評価したとき・まとめのときに呼ぶ。同じ日は 1 回だけ
     private async Task CountStudyDayAsync()
     {
+        DateTime today = DateTime.Now.Date;
         var diary = UnityEngine.Object.FindObjectOfType<DiaryManager>(true);
-        if (diary != null) diary.CountOtherPracticeAsStudyDay();
+        if (_localCountedOn != today)
+        {
+            _localCountedOn = today;
+            if (diary != null) diary.CountOtherPracticeAsStudyDay();
+        }
         var supabase = _ctx.Supabase;
         if (supabase == null || !supabase.IsConfigured) return;
+        if (_cloudCountedOn == today || _cloudSending) return;
+        _cloudSending = true;
         try
         {
             if (!await supabase.EnsureSignedInAsync()) return;
             await supabase.CompleteVocabSessionAsync(DateTime.UtcNow);
+            _cloudCountedOn = today;
             if (diary != null) diary.RefreshStreakFromCloud();
         }
         catch (Exception e)
         {
             Debug.LogWarning("[Vocab] could not count the study day in the cloud: " + e.Message);
         }
+        finally { _cloudSending = false; }
     }
 
     private void RefreshSummaryButtons()

@@ -83,6 +83,7 @@ public partial class VocabTodayView
     private int _weakIndex;
     private VocabCard _weakCard;
     private readonly VocabVideosView _videos;   // 動画の画面 (無ければ null)
+    private VocabSoundHelp _help;               // 「Didn't sound right?」(無ければ null)
 
     public VocabTodayView(VocabContext ctx, View v, VocabVideosView videos = null)
     {
@@ -304,6 +305,7 @@ public partial class VocabTodayView
     private void ResetSessionData()
     {
         _session = null;
+        _help?.Clear();
         _dicts.Clear(); _pron.Clear(); _heard.Clear(); _recs.Clear(); _gemini.Clear(); _savedForLater.Clear(); _rows.Clear();
         _geminiFailed = false;
         _scoring = false;
@@ -354,6 +356,7 @@ public partial class VocabTodayView
 
         // Sound / Say it / Videos は表だけ。裏ではその場所に単語の画像を出す (表のうちに先に取っておく)
         SetActive(_v.SoundButton != null ? _v.SoundButton.transform.parent.gameObject : null, !_flipped);
+        _help?.Render(c.Word, !_flipped && !VideosOpen);
         if (_flipped) _image?.Show(c.Word);
         else _image?.Hide(preloadWord: c.Word);
 
@@ -383,6 +386,7 @@ public partial class VocabTodayView
             _heard.TryGetValue(c.Word, out string heard);
             sb.Append("\n<size=75%>Heard: \"").Append(VocabContext.Esc(heard ?? "")).Append("\"</size>");
         }
+        if (_help != null) sb.Append(_help.Describe(c.Word));
         sb.Append("\n\n<size=65%><color=#aaaaaa>Tap the card to ").Append(_mode == Mode.Weak ? "see the meaning" : "see the meaning and rate it").Append(".</color></size>");
         return sb.ToString();
     }
@@ -430,7 +434,7 @@ public partial class VocabTodayView
     private void OnSayClicked()
     {
         if (CurrentCard == null || _finishing) return;
-        if (_starting) return;
+        if (_starting || _ctx.Capture.IsClipping) return;   // 「Didn't sound right?」で録音中
         if (_ctx.Capture.IsActive) { _ = FinishSayAsync(); return; }
         _ = StartSayAsync();
     }
@@ -470,6 +474,7 @@ public partial class VocabTodayView
             _heard[c.Word] = heard;
             c.PronBest = VocabPronJudge.Better(c.PronBest, verdict);
             c.PronAttempts++;
+            if (wav != null) _help?.SetRecording(c.Word, wav);   // 「Didn't sound right?」で送る録音 (苦手の練習でも)
             if (wav != null && _mode == Mode.Card)
             {
                 _recs[c.Word] = wav;   // 単語ごとに最後の録音だけ
@@ -508,6 +513,7 @@ public partial class VocabTodayView
         _ctx.SaveDeck();
         try { VocabStore.AppendReview(review); }
         catch (Exception e) { Debug.LogWarning("[Vocab] could not save the review: " + e.Message); }
+        _ = CountStudyDayAsync();   // 1 枚でも評価したら、その日を連続記録に数える (同じ日は 1 回だけ)
 
         if (_session.Done) ShowSummary(first: true);
         else ShowCard();

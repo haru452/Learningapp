@@ -46,6 +46,9 @@ public class VocabVideosView
     private int _played = -1;               // プレーヤーに渡した場面 (Replay で流し直せるもの)
     private string _message = "";
     private Action _onClose;
+    private string _singleId;               // 練習動画を 1 本だけ流しているとき (OpenVideo)。場面のときは null
+    private string _singleTitle = "", _singleChannel = "";
+    public const string CannotPlayText = "Could not play this video.";
 
     public bool IsOpen => _open;
 
@@ -82,6 +85,7 @@ public class VocabVideosView
         _paused = false;
         _onClose = onClose;
         _word = VocabDeck.Key(card.Word);
+        _singleId = null;
         _clips = new List<VocabClip>();
         _failed.Clear();
         _index = -1;
@@ -90,6 +94,40 @@ public class VocabVideosView
         SetActive(_v.Panel, true);
         ShowMessage("");
         _ = LoadAsync(token, _word);
+    }
+
+    /// <summary>
+    /// 動画を 1 本、最初から流す (「Didn't sound right?」の音の練習動画)。Next は出さず、Replay で最初から流し直す。
+    /// onClose は Close ボタンで閉じたときだけ呼ぶ
+    /// </summary>
+    public void OpenVideo(string videoId, string title, string channel, Action onClose)
+    {
+        if (string.IsNullOrEmpty(videoId)) return;
+        _token++;
+        _open = true;
+        _paused = false;
+        _onClose = onClose;
+        _word = "";
+        _clips = new List<VocabClip>();
+        _failed.Clear();
+        _index = -1;
+        _played = -1;
+        _message = "";
+        _singleId = videoId;
+        _singleTitle = title ?? "";
+        _singleChannel = channel ?? "";
+        SetActive(_v.Panel, true);
+        ShowSingle(play: true);
+    }
+
+    private void ShowSingle(bool play)
+    {
+        if (_v.SentenceText != null) _v.SentenceText.text = VocabContext.Esc(_singleTitle);
+        if (_v.ChannelText != null) _v.ChannelText.text = VocabContext.Esc(_singleChannel);
+        if (_v.CountText != null) _v.CountText.text = "";
+        VocabContext.Show(_v.Replay, true);
+        VocabContext.Show(_v.Next, false);
+        if (play && !_paused) _player?.Show(_singleId);
     }
 
     /// <summary>Close ボタン: プレーヤーを隠してカードへ戻る</summary>
@@ -109,6 +147,7 @@ public class VocabVideosView
         _open = false;
         _paused = false;
         _onClose = null;
+        _singleId = null;
         _player?.Hide();
         SetActive(_v.Panel, false);
     }
@@ -126,7 +165,8 @@ public class VocabVideosView
     {
         if (!_open) return;
         _paused = false;
-        if (_index >= 0) ShowClip(_index, play: false);
+        if (_singleId != null) ShowSingle(play: false);
+        else if (_index >= 0) ShowClip(_index, play: false);
         else ShowMessage(_message);
     }
 
@@ -216,6 +256,7 @@ public class VocabVideosView
 
     private void Replay()
     {
+        if (_open && _singleId != null) { _paused = false; _player?.Show(_singleId); return; }
         if (!_open || _index < 0) return;
         _paused = false;
         if (_played == _index && _player != null) _player.Replay();
@@ -246,6 +287,13 @@ public class VocabVideosView
     // 再生できない動画 (削除・埋め込み禁止など): 自動で次へ。全部だめなら「No videos」
     private void OnPlayerError(string error)
     {
+        if (_open && _singleId != null)
+        {
+            Debug.LogWarning("[VocabClips] could not play " + _singleId + " (" + error + ")");
+            _singleId = null;
+            ShowMessage(CannotPlayText);
+            return;
+        }
         if (!_open || _index < 0) return;
         Debug.LogWarning("[VocabClips] could not play " + _clips[_index].VideoId + " (" + error + ")");
         _failed.Add(_index);
