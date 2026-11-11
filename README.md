@@ -1,15 +1,21 @@
 # Voice English Corrector（英語音声添削アプリ）
 
 スマホに向かって英語で話すと、文字起こしして **Gemini API** または **DeepL Write API** で自然な英語に添削してくれる、Unity 製の英語学習アプリです。
-話した内容を英語日記として残して連続記録（ストリーク）をつけたり、YouTube の英語動画を要約するスピーキング練習（Versant 対策）をしたり、3D キャラクターと英語で会話したりもできます。
+話した内容を英語日記として残して連続記録（ストリーク）をつけられるほか、Versant 対策の練習（動画の要約・お題スピーキング・短い答え・リピーティング・シャドーイング）や、FSRS で復習日を決める単語帳もあります。
 
 > このリポジトリは、[Learningapp](https://github.com/haru452/Learningapp)（記事「その１」の時点のコード）の続きです。
-> 「その１」からの主な変更：
-> - **Summary 画面を追加**：YouTube の短い英語動画を見て、制限時間内に話して要約し、Gemini が採点する（Versant 対策）
-> - 3D キャラクターが、返事の感情に合わせて表情を変えるようにした
-> - 3D キャラクターのタッチ反応を削除した
+> 「その１」からの主な変更（記事「その２」で解説）：
+> - **Summary**：YouTube の短い英語動画を見て、制限時間内に要約を話す。Gemini が動画そのものを見て採点する
+> - **Topic**：お題について話す → 採点 → 直された文を読み直す。よくあるミスを 10 種類に分けて数える
+> - **Repeat**：聞いた英文を言い返す（リピーティング）。YouTube の動画でシャドーイング
+> - **Answer**：短い質問に一言で答える（Versant の Short Answer Questions）。問題は裏で作り置きする
+> - **苦手な発音**：言えなかった音を数えて、毎日その音の練習動画を Discord に送る
+> - **Vocab**：単語帳。FSRS-4.5 で復習日を決める。カードの画像（Pixabay）と、単語が使われている動画の場面も見られる
+> - **Gemini の API キーを画面ごとに分ける**：上限（429）になったら、ほかの画面のキーを借りる
 
-📝 **解説記事（Qiita）**：[その１：Unity で「話した英語を AI が添削してくれる」英語日記アプリを作った](https://qiita.com/haru452/items/8656d7d15db5d20c7b41)
+📝 **解説記事（Qiita）**
+- [その１：Unity で「話した英語を AI が添削してくれる」英語日記アプリを作った](https://qiita.com/haru452/items/8656d7d15db5d20c7b41)
+- その２：Versant 対策の練習と単語帳を足した（公開後にリンクを追加）
 
 | 添削（Practice） | 3D キャラとの会話（Talk・実験中） |
 |---|---|
@@ -17,7 +23,7 @@
 
 ## 主な機能
 
-アプリは4つの画面に分かれています。
+下のタブは **Diary / Topic / Vocab / Modes** の 4 つです。ほかの画面（Practice・Summary・Repeat・Answer・Talk など）は **Modes** から開きます。
 
 ### Practice：英語の添削
 - 録音ボタンで話し始め、もう一度押すと停止して添削
@@ -44,6 +50,13 @@
 - 音声認識が途中で切れても、日記モードと同じく自動で再開する
 - YouTube Data API の無料枠は 1 日 10,000 ユニットで、動画の検索 1 回に 100 ユニット使う（1 日に約 100 回まで出題できる）
 - Summary 画面は、Unity のメニュー **Tools → Summary Practice → Create Summary Screen** で、今のシーンに自動で組み立てられる（`Assets/Editor/SummaryScreenBuilder.cs`）
+
+### Topic：お題スピーキング
+- お題 → 考える時間 → 45〜60 秒話す → 採点 → 言い直し、の流れ
+- 録音をそのまま Gemini に渡し、**文字起こしと採点を 1 回のリクエストで**行う
+- **Read aloud**：直された文を声に出して読み直す。言えた単語は緑、言えなかった単語は赤（日記の下線と同じ、単語単位の差分）
+- **よくあるミス**：日記・要約・お題で直された所を、Gemini が「冠詞・時制・前置詞・単数複数…」の 10 種類に分けてクラウドに貯める（`MistakeTypes.cs`）。多かったミスは、次のお題の前に「今日の注意」として出し、採点でも重点的に見る
+- Topic 画面は、Unity のメニュー **Tools → Topic Speaking → Create Topic Screen** で組み立てる（`Assets/Editor/TopicScreenBuilder.cs`）
 
 ### Repeat：リピーティング（聞いた英文を言い返す）
 - 1 回 5 文。英文は見せずに読み上げ、聞き終わったら同じ文を言い返す。言えた単語は緑・抜けた単語は赤で、一致率（%）を出す
@@ -76,11 +89,22 @@ Tatoeba のデータは**著作権のため git に入れていません**（`.g
 - 検索欄に動画のタイトルを入れて `Search` → 候補（1〜15 分、最大 5 件）から選ぶ。選んだ動画は覚えておく
 - `Start` → 初めての動画だけ、Gemini が YouTube の URL からお手本の文字起こしを作る（スマホに保存、最大 20 本）
 - 動画がアプリの中に出るので **▶ を押す**。再生が始まると同時に録音が始まる。最後まで流れると止まる（`Stop` で途中まででも判定）
-- 録音を 3 分ずつ Gemini で書き起こし、お手本と照合 → 平均・文ごとの色分けと %・**日本語のアドバイス**（発音・リズム・遅れ）・`My voice`
+- 録音を 1 分ずつ Gemini で書き起こし、お手本と照合 → 平均・文ごとの色分けと %・**日本語のアドバイス**（発音・リズム・遅れ）・`My voice`
+- 送信に失敗しても録音は残す。`Check again` で失敗した所からやり直せる
 - **イヤホンを使う**。Android でイヤホンが付いていないときは確認が出る
 - クラウド・Web には**点数だけ**（1 回 = 1 行、`mode = 'shadow'`、`source = 'youtube'`）。動画のタイトル・アドバイス・文ごとの結果は Discord にだけ送る
 - 動画は YouTube 公式の埋め込みプレーヤーで流すだけで、音声は保存しない。お手本の文字起こしと録音はスマホの中だけ（`persistentDataPath/shadow_scripts/`）。個人の学習用
 - キー：シャドーイング専用の `geminiShadowApiKey`（空なら `geminiTtsApiKey`、上限ならほかを借りる）と `youtubeShadowApiKey`（空なら `youtubeApiKey`）。古い Supabase の場合は `supabase/repeat.sql` を実行し直す
+
+### Answer：短い答えの練習（Versant 対策）
+- Gemini が 10 問作り、1 問ずつ**音声だけ**で出題。すぐに一言で答える。音声認識が使えないとき（Unity Editor など）は文字で答える
+- **問題の作り置き**：アプリを開いたら裏で 10 問作って端末に保存（`answer_stock.json`）。`Start` で作り置きから取り出すので待たずに始まり、使った分は裏で作り足す（`Answer/ShortAnswerStock.cs`）
+  - 途中でやめたら、答えていない問題は作り置きに戻す
+  - Gemini が混んでいて作れなかったら、1 分おきに最大 5 回作り直す
+  - 同じ問題が続かないように、作り置きの問題と最近出した 60 問を Gemini に渡して、被らない問題を頼む
+- 1 回終えると、クラウドに保存して連続記録に数える
+- 画面は Modes から開く（起動時に自動で作る。シーンの組み立ては不要）
+- キー：`geminiAnswerApiKey`（任意。空なら `geminiApiKey`）。読み上げは `geminiTtsApiKey`
 
 ### 苦手な発音と「今日の発音練習」
 - お題の **Pronunciation check** で、アドバイスと一緒に「どの音の問題か」が出る（`Sound: TH` など。固定 10 種類＋その他）
@@ -97,6 +121,8 @@ Tatoeba のデータは**著作権のため git に入れていません**（`.g
   - 発音チェック：その場で端末の音声認識が聞き取り `Clear` / `Close` / `Try again`。同時に録音して、回が終わったら **Gemini** がまとめて採点（`Good` / `Close` / `Practice` と日本語のアドバイス・苦手な音）。録音と認識を同時にできない端末では認識だけ（Gemini のアドバイスなし）
   - まとめ：`My voice` / `Model`、`Score again`（Gemini が失敗したとき）、`Practice weak words`（発音だけもう一度）、条件を満たすと `Level up to ...?`（直近の新しい単語 20 個のうち 16 個以上が `Didn't know` 以外）
   - 1 回終えた日は**連続記録に数える**（ログイン中はクラウド、Web のカレンダーは紫）
+  - **カードの画像**：裏に単語の画像を出す（[Pixabay](https://pixabay.com/) の API。セーフサーチ・人気順の一番上）。取った画像は端末に保存して同じ単語では聞き直さない。見つからなかった単語は 30 日探し直さない。表を見ている間に先に取っておく。合わない画像は `Hide` で隠せる（`Show image` で戻す）。`pixabayApiKey` が空なら画像は出さない
+  - **動画の場面**（`Videos`）：その単語が英語の動画で使われている場面を、字幕つきで見られる。場面はパソコンのスクリプト（下の「単語帳の動画の場面」）で先に作るか、無い単語はアプリが YouTube を検索してその場で探し、Supabase に足す。これから出る 20 単語の場面は裏で先に探しておく。YouTube の検索はアプリの中で 1 日 30 回まで
 - **Words**：学習中 / わかった（次の復習日）とレベルで絞り込み。行をタップ → `Back to learning` / `Delete`
 - **Add**：辞書で検索して追加（見つからなければ候補）、または手入力（単語と自分の意味。日本語可）
 - 単語帳・評価の履歴・辞書の結果はスマホの中だけ（`persistentDataPath/vocab/`）。クラウドには「やった日」だけ
@@ -148,6 +174,7 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "geminiTtsApiKey": "",
   "geminiShadowApiKey": "",
   "geminiVocabApiKey": "",
+  "geminiAnswerApiKey": "",
   "deeplApiKey": "ここに DeepL のキー",
   "discordWebhookUrl": "",
   "discordBotToken": "",
@@ -165,16 +192,18 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
   "pronunciationDiscordChannelId": "",
   "repeatDiscordWebhookUrl": "",
   "repeatDiscordChannelId": "",
-  "merriamWebsterApiKey": ""
+  "merriamWebsterApiKey": "",
+  "pixabayApiKey": ""
 }
 ```
 
 | 項目 | 取得先 | 必須 |
 |---|---|---|
 | geminiApiKey | [Google AI Studio](https://aistudio.google.com/apikey) | ✅ |
-| geminiSummaryApiKey / geminiTopicApiKey / geminiTtsApiKey / geminiShadowApiKey / geminiVocabApiKey | Google AI Studio（要約練習・お題・リピーティングの読み上げ・シャドーイング・単語帳の発音の採点用。**それぞれ別のプロジェクトで作る**と無料枠が増える） | 任意。空なら geminiApiKey。上限になったらほかのキーを借りる |
+| geminiSummaryApiKey / geminiTopicApiKey / geminiTtsApiKey / geminiShadowApiKey / geminiVocabApiKey / geminiAnswerApiKey | Google AI Studio（要約練習・お題・リピーティングの読み上げ・シャドーイング・単語帳の発音の採点・短い答えの問題作り用。**それぞれ別のプロジェクトで作る**と無料枠が増える） | 任意。空なら geminiApiKey。上限になったらほかのキーを借りる |
 | deeplApiKey | [DeepL API](https://www.deepl.com/pro-api) | DeepL Write を使う場合 |
 | merriamWebsterApiKey | [dictionaryapi.com](https://dictionaryapi.com/)（Merriam-Webster's **Learner's Dictionary** の Key (Dictionary)） | 単語帳を使う場合 |
+| pixabayApiKey | [Pixabay API](https://pixabay.com/api/docs/)（単語カードの画像） | 任意。空なら画像は出さない |
 | youtubeApiKey | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)（YouTube Data API v3 を有効化） | 要約練習を使う場合 |
 | youtubeShadowApiKey | 同上（シャドーイングの動画検索用。別のプロジェクトで作ると上限が分かれる） | 任意。空なら youtubeApiKey |
 | youtubeVocabApiKey | 同上（単語帳の動画の場面の検索用） | 任意。空なら youtubeApiKey |
@@ -184,6 +213,8 @@ API キーは **`Assets/Resources/ApiSecrets.json`** に書きます。このフ
 | pronunciationDiscordWebhookUrl | Discord（お題の発音チェックのアドバイスを送るチャンネル） | 任意 |
 | repeatDiscordWebhookUrl | Discord（リピーティングの結果を送るチャンネル） | 任意 |
 | reminderWorkerUrl / reminderSecret | 自前のリマインダー用 Worker | 任意 |
+
+> 💡 **Gemini のキーの切り替え**：上限（429）になったら、そのキーでメインのモデル → 予備のモデル → ほかの画面のキー、の順に試します。Gemini の上限は**キーごとではなく Google Cloud のプロジェクトごと**です。同じプロジェクトでキーを何個作っても、上限は増えません。
 
 > ⚠️ **注意**
 > - キーは Inspector に入力しないでください。Inspector の値はシーンファイル（`.unity`）に保存され、コミットすると GitHub に公開されてしまいます。
@@ -214,17 +245,23 @@ Assets/Script/
 │   ├── AppManager.cs            … 録音 → 文字起こし → 添削 → 表示 の全体制御
 │   ├── DiaryManager.cs          … 日記モードの制御
 │   ├── SummaryPracticeManager.cs… 動画の要約練習（Versant 対策）の制御
+│   ├── TopicPracticeManager.cs  … お題スピーキングの制御
+│   ├── MistakeTypes.cs          … よくあるミスの 10 種類
+│   ├── Repeat/                  … リピーティング
+│   ├── Shadow/                  … シャドーイング
+│   ├── Answer/                  … 短い答えの練習（問題の作り置き）
+│   ├── Sounds/                  … 苦手な発音の集計
 │   ├── YouTubeSearchClient.cs   … YouTube Data API で短い動画を検索
 │   ├── YouTubePlayerView.cs     … YouTube をアプリ内（WebView）で再生
 │   ├── AudioRecorder.cs         … マイク録音と WAV 変換
 │   ├── NativeSpeechRecognizer.cs… 端末内蔵の音声認識ラッパー
-│   ├── GeminiApiClient.cs       … Gemini API（文字起こし・添削・要約の採点）
+│   ├── GeminiApiClient*.cs      … Gemini API（文字起こし・添削・採点・読み上げ・問題作り。キーの切り替え）
 │   ├── DeepLApiClient.cs        … DeepL Write API（言い換え）
 │   ├── TextDiff.cs              … 原文と添削後の差分計算
 │   ├── DiaryStreakTracker.cs / DiaryStreakView.cs … 連続記録
 │   ├── SupabaseService.cs / AuthPanel.cs / LoginGate.cs … ログイン・データ保存
 │   ├── ReminderClient.cs        … リマインダー Worker への通知
-│   ├── Vocab/                   … 単語帳（FSRS・辞書・CEFR-J・発音チェック・画面）
+│   ├── Vocab/                   … 単語帳（FSRS・辞書・CEFR-J・発音チェック・画像・動画の場面・画面）
 │   ├── ApiSecrets.cs            … API キーの読み込み
 │   └── HttpUtil.cs              … 通信の共通処理
 ├── Talk3D/                      … 3D キャラクターとの会話（実験中）
