@@ -76,8 +76,6 @@ public partial class VocabTodayView
     private readonly Stack<(VocabReview review, bool added)> _undo = new Stack<(VocabReview, bool)>();      // 裏で Sound / Say it / Videos の代わりに出す画像 (キーが無ければ null)
     private bool _finishing;
     private bool _starting;
-    private bool _scoring;
-    private bool _geminiFailed;
     private string _note = "";
     private List<VocabCard> _weak = new List<VocabCard>();
     private int _weakIndex;
@@ -113,7 +111,6 @@ public partial class VocabTodayView
             _v.RatingButtons[i].onClick.AddListener(() => Rate(g));
         }
         if (_v.RatingHint != null) _v.RatingHint.text = "If you couldn't remember it, tap \"Didn't know\".";
-        if (_v.RescoreButton != null) _v.RescoreButton.onClick.AddListener(() => _ = ScoreAsync());
         if (_v.WeakButton != null) _v.WeakButton.onClick.AddListener(StartWeak);
         if (_v.LevelUpButton != null) _v.LevelUpButton.onClick.AddListener(LevelUp);
         if (_v.SummaryRowTemplate != null) _v.SummaryRowTemplate.SetActive(false);
@@ -136,7 +133,7 @@ public partial class VocabTodayView
     public void Show()
     {
         if (_mode == Mode.Idle) ShowIdle();
-        else if (_mode == Mode.Summary) _ctx.SetStatus(_scoring ? "Checking your pronunciation..." : "Tap \"Start\" for more words.");
+        else if (_mode == Mode.Summary) _ctx.SetStatus("Tap \"Start\" for more words.");
         else if (VideosOpen) _videos.ResumeWithoutPlaying();   // 同じ場面の文だけ (流し直さない)
         else if (_mode == Mode.Card || _mode == Mode.Weak) ShowStatusForCard();
     }
@@ -306,9 +303,7 @@ public partial class VocabTodayView
     {
         _session = null;
         _help?.Clear();
-        _dicts.Clear(); _pron.Clear(); _heard.Clear(); _recs.Clear(); _gemini.Clear(); _savedForLater.Clear(); _rows.Clear();
-        _geminiFailed = false;
-        _scoring = false;
+        _dicts.Clear(); _pron.Clear(); _heard.Clear(); _recs.Clear(); _gemini.Clear(); _asking.Clear(); _rows.Clear();
         _note = "";
         _weak = new List<VocabCard>();
         VocabContext.ClearChildren(_v.SummaryContent, _v.SummaryRowTemplate);

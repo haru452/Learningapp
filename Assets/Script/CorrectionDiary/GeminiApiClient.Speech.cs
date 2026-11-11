@@ -98,7 +98,7 @@ public partial class GeminiApiClient
     public const int MaxVocabWords = 20;
 
     private const string VocabPronPrompt =
-        "You are an English pronunciation coach for a Japanese learner. Each attached audio clip is the learner saying " +
+        "You are an English pronunciation coach. Each attached audio clip is the learner saying " +
         "one English word, labeled \"Word N: <word>\" just before it. For every word, return:\n" +
         "- word: the word exactly as labeled\n" +
         "- rating: good (clear), close (understandable but a sound is off), or practice (hard to understand or a different word)\n" +

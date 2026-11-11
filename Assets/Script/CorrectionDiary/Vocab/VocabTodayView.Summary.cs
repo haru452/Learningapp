@@ -16,6 +16,7 @@ public partial class VocabTodayView
     // ------------------------------------------------------------
     private void ShowSummary(bool first)
     {
+        if (first) _asking.Clear();
         SetMode(Mode.Summary);
         SetActive(_v.CardArea, false);
         SetActive(_v.RatingRow, false);
@@ -28,15 +29,15 @@ public partial class VocabTodayView
         RefreshSummaryButtons();
         if (!first) { _ctx.SetStatus("Tap \"Start\" for more words."); return; }
 
-        _ctx.SetStatus("Done. Tap \"Start\" for more words.");
+        _ctx.SetStatus(_recs.Count > 0 ? "Done. Tap \"Ask Gemini\" on a word for advice." : "Done. Tap \"Start\" for more words.");
         _ = CountStudyDayAsync();
-        if (_recs.Count > 0) _ = ScoreAsync();
     }
 
     private void BuildRows()
     {
         VocabContext.ClearChildren(_v.SummaryContent, _v.SummaryRowTemplate);
         _rows.Clear();
+        _askButtons.Clear();
         if (_v.SummaryRowTemplate == null || _session == null) return;
         foreach (var c in _session.Cards)
         {
@@ -55,7 +56,13 @@ public partial class VocabTodayView
             }
             var modelT = row.transform.Find(ModelPath);
             var model = modelT != null ? modelT.GetComponent<Button>() : null;
+            var ask = CreateAskButton(model);
             if (model != null) model.onClick.AddListener(() => PlayModel(card));
+            if (ask != null)
+            {
+                ask.onClick.AddListener(() => _ = AskGeminiAsync(card.Word));
+                _askButtons[c.Word] = ask;
+            }
             UpdateRow(c);
         }
     }
@@ -75,88 +82,86 @@ public partial class VocabTodayView
                 if (g.Advice.Length > 0) sb.Append('\n').Append(VocabContext.Esc(g.Advice));
                 if (g.Sounds.Count > 0) sb.Append("\nSounds: ").Append(string.Join(", ", g.Sounds.Select(s => SoundTypes.Label(s, "other"))));
             }
-            else sb.Append(_scoring ? "<color=#aaaaaa>...</color>" : "<color=#aaaaaa>-</color>");
+            else sb.Append("<color=#aaaaaa>-</color>");
+            if (_asking.Contains(c.Word)) sb.Append("\n<color=#aaaaaa>Asking Gemini...</color>");
         }
         sb.Append("</size>");
         text.text = sb.ToString();
+        if (_askButtons.TryGetValue(c.Word, out Button ask) && ask != null)
+        {
+            ask.gameObject.SetActive(_recs.ContainsKey(c.Word) && !_asking.Contains(c.Word));
+            var label = ask.GetComponentInChildren<TMP_Text>(true);
+            if (label != null) label.text = _gemini.ContainsKey(c.Word) ? "Ask again" : "Ask Gemini";
+        }
     }
 
-    // 1 回分の録音をまとめて Gemini に送る。失敗したら [Score again]
-    private async Task ScoreAsync()
+    // ------------------------------------------------------------
+    // 1 語ずつ Gemini に聞く (まとめての採点はしない)。メモリに残っている録音を送る。何度でも聞き直せる
+    // ------------------------------------------------------------
+    private const string AskGeminiName = "AskGemini";
+    private readonly Dictionary<string, Button> _askButtons = new Dictionary<string, Button>();
+    private readonly HashSet<string> _asking = new HashSet<string>();   // いま Gemini に聞いている単語
+
+    // 行の Model ボタンを複製して「Ask Gemini」ボタンを作る (シーンを作り直さなくても出るように、実行時に作る)
+    private static Button CreateAskButton(Button model)
     {
-        if (_scoring || _session == null) return;
-        var words = _recs.Keys.Where(w => !_gemini.ContainsKey(w) && !_savedForLater.Contains(w)).Take(GeminiApiClient.MaxVocabWords).ToList();
-        if (words.Count == 0) return;
+        if (model == null) return null;
+        var go = UnityEngine.Object.Instantiate(model.gameObject, model.transform.parent);
+        go.name = AskGeminiName;
+        var button = go.GetComponent<Button>();
+        button.onClick.RemoveAllListeners();
+        var label = go.GetComponentInChildren<TMP_Text>(true);
+        if (label != null) label.text = "Ask Gemini";
+        go.SetActive(false);
+        return button;
+    }
+
+    private async Task AskGeminiAsync(string word)
+    {
+        if (_asking.Contains(word) || !_recs.TryGetValue(word, out byte[] wav)) return;
         if (_ctx.Gemini == null) { _ctx.SetStatus("No Gemini key, so no pronunciation advice."); return; }
         int token = _token;
-        _scoring = true;
-        _geminiFailed = false;
-        RefreshSummaryButtons();
-        foreach (var c in _session.Cards) UpdateRow(c);
-        _ctx.SetStatus("Checking your pronunciation...");
+        var card = _session?.Cards.FirstOrDefault(c => c.Word == word);
+        _asking.Add(word);
+        if (card != null) UpdateRow(card);
+        bool first = !_gemini.ContainsKey(word);
+        _ctx.SetStatus("Asking Gemini about \"" + word + "\"...");
         try
         {
-            var results = await _ctx.Gemini.CheckWordPronunciationsAsync(words, words.Select(w => _recs[w]).ToList());
+            var results = await _ctx.Gemini.CheckWordPronunciationsAsync(new[] { word }, new[] { wav });
             if (token != _token) return;
-            foreach (var r in results)
-            {
-                _gemini[r.Word] = r;
-                var card = _ctx.Deck.Find(r.Word);
-                if (card != null) card.GeminiPron = r.Rating;
-                VocabStore.DeleteRecording(r.Word);   // 採点が済んだ録音は消す (My voice 用にメモリには残す)
-            }
+            if (results.Count == 0) throw new Exception("Gemini did not return the word");
+            foreach (var r in results) ApplyResult(r);
             _ctx.SaveDeck();
-            _ = SavePronLogsAsync(results);   // 苦手な音があった単語を Web で見られるように残す
-            // Gemini が返さなかった単語があれば、[Score again] でその単語だけもう一度
-            int missing = words.Count(w => !_gemini.ContainsKey(w));
-            _geminiFailed = missing > 0;
-            _ctx.SetStatus(missing > 0
-                ? missing + (missing == 1 ? " word was" : " words were") + " not checked. Tap \"Score again\"."
-                : "Done. Tap \"Start\" for more words.");
+            VocabStore.DeleteRecording(word);   // 端末のファイルは消す (聞き直し・My voice 用にメモリには残す)
+            if (first) _ = SavePronLogsAsync(results);   // Web の苦手な発音は 1 回目だけ (聞き直しで二重に数えない)
+            _ctx.SetStatus("Gemini checked \"" + word + "\".");
         }
         catch (Exception e)
         {
             if (token != _token) return;
-            Debug.LogWarning("[Vocab] Gemini pronunciation check failed: " + e.Message);
-            if (SaveForLater(e, words)) return;   // Gemini が混んでいたら、録音を残してあとで自動で送る
-            _geminiFailed = true;
-            _ctx.SetStatus("Could not check the pronunciation. Tap \"Score again\".");
+            Debug.LogWarning("[Vocab] asking Gemini failed: " + e.Message);
+            _ctx.SetStatus("Could not ask Gemini. Try again in a moment.");
         }
         finally
         {
-            _scoring = false;   // 回が変わっていても必ず戻す (戻さないと次の回の採点が始まらない)
-            if (token == _token)
+            _asking.Remove(word);
+            if (token == _token && _mode == Mode.Summary)
             {
-                if (_mode == Mode.Summary)
-                {
-                    foreach (var c in _session.Cards) UpdateRow(c);
-                    RefreshSummaryButtons();
-                }
+                if (card != null) UpdateRow(card);
+                RefreshSummaryButtons();   // 判定が変わると「苦手な単語の練習」に入る単語も変わる
             }
         }
     }
 
-    // あとで送ると決めた単語 (Score again では送らない)。回が変わったら空にする
-    private readonly HashSet<string> _savedForLater = new HashSet<string>();
-
-    // Gemini が混んでいたら、その回の録音を端末に残してあとで自動で送る (GeminiLater)。残せたら true
-    private bool SaveForLater(Exception e, List<string> words)
+    // Gemini の 1 語分の判定を、この回の結果と単語帳に入れる
+    private void ApplyResult(GeminiApiClient.WordPronResult r)
     {
-        if (!GeminiLater.IsBusy(e) || words == null || words.Count == 0) return false;
-        var job = new GeminiLater.Job
-        {
-            kind = GeminiLater.Vocab,
-            model = _ctx.Gemini.Model,
-            fallbackModel = _ctx.Gemini.FallbackModel,
-            words = new List<string>(words),
-            heardWords = words.Where(_heard.ContainsKey).ToList(),
-        };
-        job.heardTexts = job.heardWords.Select(w => _heard[w]).ToList();
-        if (!GeminiLater.Add(job, words.Select(w => _recs[w]).ToList())) return false;
-        foreach (var w in words) _savedForLater.Add(w);
-        _geminiFailed = false;
-        _ctx.SetStatus(DiaryManager.SavedForLaterMessage);
-        return true;
+        // 端末の音声認識が単語どおりに聞き取れたなら、L と R は言い分けられている (Gemini の思い込みを出さない)
+        if (_pron.TryGetValue(r.Word, out string heard) && heard == VocabPronJudge.Clear) r.Sounds.Remove("r_l");
+        _gemini[r.Word] = r;
+        var card = _ctx.Deck.Find(r.Word);
+        if (card != null) card.GeminiPron = r.Rating;
     }
 
     // 苦手な音 (th・R と L など) があった単語を 1 回ずつクラウドに残す (失敗は Console だけ)
@@ -212,7 +217,7 @@ public partial class VocabTodayView
     private void RefreshSummaryButtons()
     {
         bool summary = _mode == Mode.Summary;
-        VocabContext.Show(_v.RescoreButton, summary && _geminiFailed && !_scoring);
+        VocabContext.Show(_v.RescoreButton, false);   // まとめての採点はやめた (1 語ずつ Ask Gemini)
         _weak = _session == null ? new List<VocabCard>() : _session.Cards.Where(c =>
             (_pron.TryGetValue(c.Word, out string p) && p != VocabPronJudge.Clear)
             || (_gemini.TryGetValue(c.Word, out var g) && g.Rating == "practice")).ToList();
