@@ -15,7 +15,7 @@
 
 📝 **解説記事（Qiita）**
 - [その１：Unity で「話した英語を AI が添削してくれる」英語日記アプリを作った](https://qiita.com/haru452/items/8656d7d15db5d20c7b41)
-- その２：Versant 対策の練習と単語帳を足した（公開後にリンクを追加）
+- [その２：Versant 対策の練習と単語帳を足した（備忘録）](https://qiita.com/haru452/items/7b5560b8db5a6ac0253f)
 
 | 添削（Practice） | 3D キャラとの会話（Talk・実験中） |
 |---|---|
