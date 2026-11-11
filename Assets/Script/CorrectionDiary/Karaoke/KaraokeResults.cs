@@ -13,6 +13,24 @@ public static class KaraokeResults
     public const string Model = "gemini-3.8-flash";
     public const string FallbackModel = "gemini-3.7-flash";
 
+    /// <summary>あとで送った採点の結果 (カラオケの画面に出す)。Rows = 歌った行の番号と歌詞</summary>
+    public class LaterResult
+    {
+        public string Title = "", Artist = "", VideoId = "";
+        public int Score;
+        public KaraokeCheck Check;
+        public List<(int index, string text)> Rows = new List<(int index, string text)>();
+    }
+
+    /// <summary>あとで送った採点が終わった (GeminiLaterJobs が呼ぶ)。カラオケの画面が受け取って結果を出す</summary>
+    public static event Action<LaterResult> LaterChecked;
+
+    public static void RaiseLaterChecked(LaterResult result)
+    {
+        try { LaterChecked?.Invoke(result); }
+        catch (Exception e) { Debug.LogWarning("[Karaoke] could not show the saved result: " + e.Message); }
+    }
+
     /// <summary>採点に使うクライアント (カラオケのキー。無ければ日記のキー。上限ならほかの機能のキーを借りる)</summary>
     public static GeminiApiClient CreateGemini(string model = Model, string fallback = FallbackModel)
     {
@@ -60,7 +78,7 @@ public static class KaraokeResults
             {
                 if (await supabase.EnsureSignedInAsync())
                 {
-                    await supabase.CompleteKaraokeAsync(title, artist, videoId, score, check.Lines, takenAtUtc);
+                    await supabase.CompleteKaraokeAsync(title, artist, videoId, score, check.Lines, takenAtUtc, check.Advice);
                     var hits = KaraokeScorer.Sounds(check.Lines);
                     if (hits.Count > 0) await supabase.SavePronunciationIssuesAsync(hits, 1, "karaoke", takenAtUtc);
                     var diary = UnityEngine.Object.FindObjectOfType<DiaryManager>(true);

@@ -42,7 +42,10 @@ public partial class KaraokeScreen : MonoBehaviour
         _video.OnTime += OnVideoTime;
         _video.OnEnded += () => _videoEnded = true;
         _video.OnError += e => _videoError = e;
+        KaraokeResults.LaterChecked += OnLaterChecked;   // 混んでいてあとで送った採点も、この画面に出す
     }
+
+    private void OnDestroy() => KaraokeResults.LaterChecked -= OnLaterChecked;
 
     // 開いたら、タブの「採点が終わった」● を消す
     private void OnEnable()

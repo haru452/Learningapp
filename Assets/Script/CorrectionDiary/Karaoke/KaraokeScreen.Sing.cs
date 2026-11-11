@@ -11,6 +11,7 @@ public partial class KaraokeScreen
 {
     private const float PlayWaitSeconds = 60f;    // ▶ を押すまで待つ
     private const int ExtraRecordSeconds = 30;
+    public const double RewindSeconds = 10;
 
     // 動画の時刻: 1 秒ごとに届く OnTime と、その後の経過時間から出す
     private bool _playing, _videoEnded, _finishRequested;
@@ -20,6 +21,7 @@ public partial class KaraokeScreen
     private float _recordStartedAt;      // 録音を始めた時刻 (Time.realtimeSinceStartup)
     private double _recordStartVideo;    // 録音を始めたときの動画の時刻
     private KaraokeClock _clock = new KaraokeClock();   // 動画の時刻 → 録音の秒 (一時停止しても合わせる)
+    private double _furthestVideo;       // 歌っている間に進んだ一番先の動画の時刻 (巻き戻しても、そこまでは歌った)
 
     // 採点した結果 (My voice 用に録音も持っておく)
     private class Result
@@ -27,7 +29,9 @@ public partial class KaraokeScreen
         public byte[] Wav;
         public KaraokeClock Clock;
         public List<LrcLine> Sung;
-        public int TotalLines;
+        public List<(int index, string text)> Rows;   // 結果に並べる行 (歌詞の行の番号と歌詞)
+        public int TotalLines;                        // 0 = わからない (あとで送った採点)
+        public string Title = "";                     // あとで送った採点のときだけ (どの曲か)
         public KaraokeCheck Check;
         public int Score;
     }
@@ -56,7 +60,26 @@ public partial class KaraokeScreen
         _lastVideoTime = t;
         _lastVideoTimeAt = Time.realtimeSinceStartup;
         // 録音の何秒目に動画が何秒だったかを覚える (止まっても、あとで行と録音を合わせられるように)
-        if (_state == State.Singing) _clock.Add(Time.realtimeSinceStartup - _recordStartedAt, t);
+        if (_state == State.Singing)
+        {
+            _clock.Add(Time.realtimeSinceStartup - _recordStartedAt, t);
+            _furthestVideo = Math.Max(_furthestVideo, t);
+        }
+    }
+
+    /// <summary>動画と歌詞を seconds 秒前に戻す (録音は止めない。戻した所は、歌い直した方を採点する)</summary>
+    private void Rewind(double seconds)
+    {
+        if (_state != State.Singing) return;
+        double now = VideoTime;
+        double to = Math.Max(0, now - seconds);
+        _furthestVideo = Math.Max(_furthestVideo, now);
+        _video.SeekBy(-seconds);
+        // 次の時刻が届くまで待たずに、歌詞もすぐ戻す
+        _lastVideoTime = to;
+        _lastVideoTimeAt = Time.realtimeSinceStartup;
+        _clock.Add(Time.realtimeSinceStartup - _recordStartedAt, to);
+        RenderLyrics();
     }
 
     private async void OnStart()
@@ -74,6 +97,7 @@ public partial class KaraokeScreen
         _videoError = null;
         _lastVideoTime = 0;
         _recordStartVideo = 0;
+        _furthestVideo = 0;
         _result = null;
         _state = State.WaitingToPlay;
         _status = "Tap ▶ on the video. Recording starts with the song.";
@@ -135,7 +159,7 @@ public partial class KaraokeScreen
     // 歌うのをやめて、歌った行だけを採点する
     private async Task FinishAsync(int token)
     {
-        double stoppedAt = VideoTime;
+        double stoppedAt = Math.Max(VideoTime, _furthestVideo);   // 巻き戻して止めても、先まで歌った行は採点する
         byte[] wav = _recorder.IsRecording ? _recorder.StopRecording() : null;
         _video.Hide();
         _playing = false;
@@ -152,7 +176,8 @@ public partial class KaraokeScreen
         var chunks = LrcLyrics.Chunks(_lines, _offset, _clock.RecordSeconds, KaraokeWav.Seconds(wav));
         var wavs = chunks.Select(c => KaraokeWav.Slice(wav, c.start, c.end)).ToList();
         var chunkLines = chunks.Select(c => c.lines.Select(i => (i, _lines[i].Text)).ToList()).ToList();
-        _result = new Result { Wav = wav, Clock = _clock, Sung = sung, TotalLines = total };
+        _result = new Result { Wav = wav, Clock = _clock, Sung = sung, TotalLines = total,
+                               Rows = sung.Select(l => (_lines.IndexOf(l), l.Text)).ToList() };
         CountStudyDay();   // 歌った日を連続記録に数える (採点できなくても)
         await CheckAsync(token, wavs, chunkLines);
     }
@@ -230,6 +255,28 @@ public partial class KaraokeScreen
             lineTexts = chunkLines.SelectMany(c => c.Select(l => l.text)).ToList(),
         };
         return GeminiLater.Add(job, wavs);
+    }
+
+    /// <summary>
+    /// 混んでいてあとで送った採点が終わったら、結果をこの画面に出す (歌っている・採点中なら出さない。Discord とクラウドには残っている)。
+    /// 録音は残っていないので、行を押しても自分の声は流れない
+    /// </summary>
+    private void OnLaterChecked(KaraokeResults.LaterResult r)
+    {
+        if (this == null || r?.Check == null || IsBusy) return;   // 探している・歌っている・採点中は、じゃましない
+        _token++;
+        _pendingWavs = null;
+        _pendingLines = null;
+        string title = r.Title + (string.IsNullOrEmpty(r.Artist) ? "" : " / " + r.Artist);
+        _result = new Result
+        {
+            Sung = r.Rows.Select(x => new LrcLine { Text = x.text }).ToList(),
+            Rows = r.Rows, Check = r.Check, Score = r.Score, Title = title,
+        };
+        _state = State.Result;
+        _status = "Your saved karaoke was checked.";
+        Render();
+        if (!gameObject.activeInHierarchy && _tabLabel != null) _tabLabel.text = TabBadge.Add(_tabLabel.text);   // トーストはもう出ている
     }
 
     private void CountStudyDay()

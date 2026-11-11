@@ -142,6 +142,11 @@ public static class GeminiLaterJobs
         var sung = textOf.OrderBy(kv => kv.Key).Select(kv => new LrcLine { Text = kv.Value }).ToList();
         int score = KaraokeScorer.Score(sung, check.Lines);
         bool sent = await KaraokeResults.SaveAsync(job.videoTitle, job.artist, job.videoId, score, check, job.CreatedUtc);
+        KaraokeResults.RaiseLaterChecked(new KaraokeResults.LaterResult   // カラオケの画面にも点数を出す
+        {
+            Title = job.videoTitle ?? "", Artist = job.artist ?? "", VideoId = job.videoId ?? "", Score = score, Check = check,
+            Rows = textOf.OrderBy(kv => kv.Key).Select(kv => (kv.Key, kv.Value)).ToList(),
+        });
         return $"Your saved karaoke was checked: {score} / 100" + Where(sent);
     }
 

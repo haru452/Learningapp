@@ -21,7 +21,7 @@ public partial class KaraokeScreen
     private GameObject _lyricsCard, _offsetRow, _searchRow;
     private RectTransform _videoArea;
     private Transform _list;
-    private Button _mainButton, _newSongButton;
+    private Button _mainButton, _newSongButton, _rewindButton;
     private string _status = "Type a song title and tap Search.";
     private State _listShownFor = State.Idle;
     private List<Button> _otherTabs = new List<Button>();
@@ -135,6 +135,8 @@ public partial class KaraokeScreen
         UiStyle.Row(buttons, UiTheme.Gap).childForceExpandWidth = true;
         _newSongButton = NewButton("NewSongButton", buttons.transform, "New song", false, 1);
         _newSongButton.onClick.AddListener(OnNewSong);
+        _rewindButton = NewButton("RewindButton", buttons.transform, "−" + RewindSeconds + "s", false, 1);
+        _rewindButton.onClick.AddListener(() => Rewind(RewindSeconds));
         _mainButton = NewButton("MainButton", buttons.transform, "Search", true, 2);
         _mainButton.onClick.AddListener(OnMain);
         _mainLabel = _mainButton.GetComponentInChildren<TMP_Text>(true);
@@ -150,7 +152,8 @@ public partial class KaraokeScreen
             case State.Singing: OnFinish(); break;
             case State.Result:
                 if (_pendingWavs != null) OnCheckAgain();
-                else { _state = State.Ready; _status = "Tap Start to sing again."; Render(); }
+                else if (_song != null) { _state = State.Ready; _status = "Tap Start to sing again."; Render(); }
+                else { ToIdle("Type a song title and tap Search."); Render(); }   // あとで送った採点の結果を見ていて、曲をまだ選んでいない
                 break;
         }
     }
@@ -178,6 +181,7 @@ public partial class KaraokeScreen
             _state == State.Result ? (_pendingWavs != null ? "Check again" : "Sing again") : "Search";
         _newSongButton.gameObject.SetActive(_state != State.Idle && _state != State.Searching);
         _newSongButton.interactable = !IsBusy;
+        _rewindButton.gameObject.SetActive(_state == State.Singing);
 
         if (_state == State.Ready) RenderPreview();
         if (_listShownFor != _state || _state == State.Result) RenderList();
@@ -220,14 +224,18 @@ public partial class KaraokeScreen
                 head.text = "Not checked yet.";
                 return;
             }
-            head.text = "<b>Score: " + _result.Score + " / 100</b>\n<size=80%><color=#9CA3AF>Checked lines 1–" + _result.Sung.Count +
-                        " of " + _result.TotalLines + ". Words in red were hard to hear. Tap a line to hear your voice.</color></size>" +
+            string checkedLines = _result.TotalLines > 0
+                ? "Checked lines 1–" + _result.Rows.Count + " of " + _result.TotalLines + ". "
+                : "Checked " + _result.Rows.Count + " lines. ";
+            string voiceNote = _result.Wav != null ? " Tap a line to hear your voice." : "";
+            head.text = (string.IsNullOrEmpty(_result.Title) ? "" : _result.Title + "\n") +
+                        "<b>Score: " + _result.Score + " / 100</b>\n<size=80%><color=#9CA3AF>" + checkedLines +
+                        "Words in red were hard to hear." + voiceNote + "</color></size>" +
                         (string.IsNullOrWhiteSpace(_result.Check.Advice) ? "" : "\n\n" + _result.Check.Advice);
             var missed = _result.Check.Lines.ToDictionary(l => l.Line, l => l.Missed);
-            foreach (var line in _result.Sung)
+            foreach (var (index, lineText) in _result.Rows)
             {
-                int index = _lines.IndexOf(line);
-                string text = missed.TryGetValue(index, out var m) ? KaraokeScorer.Highlight(line.Text, m, MissColor) : line.Text;
+                string text = missed.TryGetValue(index, out var m) ? KaraokeScorer.Highlight(lineText, m, MissColor) : lineText;
                 NewRow(text).onClick.AddListener(() => PlayMyVoice(index));
             }
         }
